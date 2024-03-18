@@ -14,3 +14,11 @@ GEO accession: https://www.ncbi.nlm.nih.gov/geo/query/acc.cgi?acc=GSE255578
 
 single cell data can be browsed at: https://castelobranco.shinyapps.io/snrnaseq_ct_vs_taf1ex38del/
 
+Legend shinyapp:
+
+Dimension reduction UMAP
+
+Used clusters resolution SCT_snn_res.1
+
+Annotated celltypes orig.ident
+
