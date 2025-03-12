@@ -1,0 +1,990 @@
+---
+title: "TAF1_analysis_spinalcord"
+author: "eneritz"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+```{r}
+library(Signac)
+library(Seurat)
+library(GenomeInfoDb)
+library(ggplot2)
+library(patchwork)
+library(EnsDb.Mmusculus.v79)
+library(BSgenome.Mmusculus.UCSC.mm10)
+library(tidyverse)
+library(scCustomize)
+library(biomaRt)
+library(gprofiler2)
+library(scDblFinder)
+library(Augur)
+set.seed(1234)
+```
+
+AUC
+perturbations
+
+- broad celltypes 
+- annotated olgs + other celltypes
+- selected clusters from 08 ( with enough cells)
+
+```{r}
+
+#idents: "celltypes_sub_res02 
+CRL_SC.qch.singlet
+CRL_SC.qch.singlet$SC_cond <- paste(CRL_SC.qch.singlet$sample, CRL_SC.qch.singlet$broad_celltypes, sep = "_")
+
+Idents(CRL_SC.qch.singlet) <- "SC_cond"
+table(CRL_SC.qch.singlet$SC_cond)
+
+CRL_SC.broad <- subset( CRL_SC.qch.singlet , downsample = 400 )
+
+#is going to complain that htere is nor "data" layer
+CRL_SC.broad <- CRL_SC.broad %>%
+    NormalizeData() %>%
+    FindVariableFeatures(selection.method = "vst", nfeatures = 2000) %>% 
+    ScaleData()
+# convert a v5 assay to a v3 assay
+CRL_SC.broad[["RNA"]] <- as(object = CRL_SC.broad[["RNA"]], Class = "Assay")
+
+CRL_SC_broad_AUC = calculate_auc(CRL_SC.broad , cell_type_col = "broad_celltypes", label_col = "sample"  , n_threads = 1 )
+
+```
+Annotated olg + others 130824
+```{r}
+unique(CRL_SC.qch.singlet$Celltypes_OLG)
+table(CRL_SC.qch.singlet$Celltypes_OLG)
+
+CRL_celltype <- CRL_SC.qch.singlet
+# convert a v5 assay to a v3 assay
+CRL_celltype[["RNA"]] <- as(object = CRL_celltype[["RNA"]], Class = "Assay")
+
+# new annotations from CRl with the 
+CRL_SC_cellOLG_AUC = calculate_auc(CRL_celltype , cell_type_col = "Celltypes_OLG", label_col = "sample"  , n_threads = 1 )
+
+```
+selected 08 clusters ( with enough cells)
+```{r}
+unique(CRL_SC.qch.singlet$celltypes_sub_res08)
+table(CRL_SC.qch.singlet$celltypes_sub_res08)
+Idents(CRL_SC.qch.singlet) <- "celltypes_sub_res08"
+CRL_celltype <- subset(CRL_SC.qch.singlet , ident=c( "OLG_5" ,"OLG_7" , "OLG_11" , "OLG_12" , "OLG_13" , "OLG_17" ,"Migl_NA" ))
+
+# convert a v5 assay to a v3 assay
+CRL_celltype[["RNA"]] <- as(object = CRL_celltype[["RNA"]], Class = "Assay")
+
+# new annotations from CRl with the 
+CRL_SC_select_AUC = calculate_auc(CRL_celltype , cell_type_col = "Celltypes_OLG", label_col = "sample"  , n_threads = 1 )
+
+```
+without SCT08 filtered clusters
+```{r}
+
+unique(CRL_SC.qch.singlet$celltypes_sub_res08)
+table(CRL_SC.qch.singlet$celltypes_sub_res08)
+Idents( CRL_SC.qch.singlet) <- "celltypes_sub_res08"
+
+CRL_celltype <- CRL_SC.qch.singlet
+# convert a v5 assay to a v3 assay
+CRL_celltype[["RNA"]] <- as(object = CRL_celltype[["RNA"]], Class = "Assay")
+
+# new annotations from CRl with the 
+CRL_SC_SCT08_AUC = calculate_auc(CRL_celltype , cell_type_col = "celltypes_sub_res08", label_col = "sample"  , n_threads = 3 )
+
+```
+
+
+```{r}
+CRL_SC_broad_AUC$AUC
+CRL_SC_cellOLG_AUC$AUC
+CRL_SC_selection_AUC$AUC
+CRL_SC_SCT08_AUC$AUC
+
+
+```
+
+#run again the AUC from AUGUR
+############################### new naminc 08 + olg_clusters
+```{r}
+
+CRL_SC.qch.singlet$OLG_SCT  <- paste(CRL_SC.qch.singlet$Celltypes_OLG , CRL_SC.qch.singlet$celltypes_sub_res08 , sep="_")
+  Idents(CRL_SC.qch.singlet) <- "celltypes_sub_res08"
+CRL_celltype <- subset(CRL_SC.qch.singlet , ident=c( "OLG_5" ,"OLG_7" , "OLG_11" , "OLG_12" , "OLG_13" , "OLG_17" ,"Migl_NA" ))
+
+unique(CRL_celltype$OLG_SCT)
+CRL_celltype[["RNA"]] <- as(object = CRL_celltype[["RNA"]], Class = "Assay")
+
+CRL_SC_select_AUC = calculate_auc(CRL_celltype , cell_type_col = "OLG_SCT", label_col = "sample"  , n_threads = 1 )
+
+```
+
+
+
+
+
+
+clustered dot plot separate by condition
+
+```{r , fig.width=6}
+DefaultAssay(CRL_SC.qch.singlet) <- "SCT"
+unique(CRL_SC.qch.singlet$sample)
+Idents(CRL_SC.qch.singlet) <- "sample"
+WT_CRL <- subset(CRL_SC.qch.singlet , ident=("WT"))
+KO_CRL <- subset(CRL_SC.qch.singlet , ident=("KO"))
+
+
+Idents(WT_CRL) <- "Celltypes_OLG"
+Idents(KO_CRL) <- "Celltypes_OLG"
+unique(WT_CRL$Celltypes_OLG)
+levels(WT_CRL) <-  c("Exc_neurons",
+"Inh_neurons", "Astro", "Migl", "OPC", "COP", "NFOL", "MFOL", "MOL2", "MOL56")
+
+p1 <- Clustered_DotPlot(seurat_object = WT_CRL, features = CRL_genes , assay = "SCT" , colors_use_exp = viridis(20) ,  exp_color_min = -2, exp_color_max = 2 , cluster_ident = F , plot_km_elbow =  F , cluster_feature = F , x_lab_rotate = 90)
+
+levels(KO_CRL) <-  c("Exc_neurons",
+"Inh_neurons", "Astro", "Migl", "OPC", "COP", "NFOL", "MFOL", "MOL2", "MOL56")
+
+p2 <- Clustered_DotPlot(seurat_object = KO_CRL, features = CRL_genes , assay = "SCT" , colors_use_exp = viridis(20) ,  exp_color_min = -2, exp_color_max = 2 , cluster_ident = F , cluster_feature = F , plot_km_elbow =  F  , x_lab_rotate = 90)
+
+p1 + p2
+
+
+p1
+```
+
+
+```{r , fig.width=6}
+setEPS()
+postscript("dotplot_OLG_WT_Scord.eps",
+ width = 9, # The width of the plot in inches
+    height = 6) 
+p1
+dev.off()
+
+
+pdf(file = "dotplot_OLG_WT_Scord.pdf",   
+    width = 9, 
+    height = 6) 
+p1
+dev.off()
+
+
+
+setEPS()
+postscript("dotplot_OLG_KO_Scord.eps",
+ width = 9, 
+    height = 6) 
+p2
+dev.off()
+
+
+pdf(file = "dotplot_OLG_KO_Scord.pdf",  
+    width = 9, 
+    height = 6) 
+p2
+dev.off()
+```
+Functional classes
+
+```{r , fig.width=6.5}
+DefaultAssay(CRL_SC.qch.singlet) <- "SCT"
+unique(CRL_SC.qch.singlet$sample)
+Idents(CRL_SC.qch.singlet) <- "sample"
+WT_CRL <- subset(CRL_SC.qch.singlet , ident=("WT"))
+KO_CRL <- subset(CRL_SC.qch.singlet , ident=("KO"))
+
+
+Idents(WT_CRL) <- "Celltypes_OLG"
+Idents(KO_CRL) <- "Celltypes_OLG"
+unique(WT_CRL$Celltypes_OLG)
+levels(WT_CRL) <-  c("Exc_neurons",
+"Inh_neurons", "Astro", "Migl", "OPC", "COP", "NFOL", "MFOL", "MOL2", "MOL56")
+
+p1 <- Clustered_DotPlot(seurat_object = WT_CRL, features = CRL_genes , assay = "SCT" , colors_use_exp = viridis(20) ,  exp_color_min = -2, exp_color_max = 2 , cluster_ident = F , plot_km_elbow =  F , cluster_feature = F , x_lab_rotate = 90)
+
+levels(KO_CRL) <-  c("Exc_neurons",
+"Inh_neurons", "Astro", "Migl", "OPC", "COP", "NFOL", "MFOL", "MOL2", "MOL56")
+
+p2 <- Clustered_DotPlot(seurat_object = KO_CRL, features = CRL_genes , assay = "SCT" , colors_use_exp = viridis(20) ,  exp_color_min = -2, exp_color_max = 2 , cluster_ident = F , cluster_feature = F , plot_km_elbow =  F  , x_lab_rotate = 90)
+
+p1 
+p2
+
+Idents(CRL_SC.qch.singlet) <- "Celltypes_OLG"
+CRL_SC.qch.singlet$Celltype_Cond  <- paste(CRL_SC.qch.singlet$Celltypes_OLG , CRL_SC.qch.singlet$sample , sep="_")
+Idents(CRL_SC.qch.singlet) <- "Celltype_Cond"
+levels(CRL_SC.qch.singlet) <-  c("Exc_neurons_WT", "Exc_neurons_KO",
+"Inh_neurons_WT", "Inh_neurons_KO" , "Astro_WT", "Astro_KO", "Migl_WT", "Migl_KO",  "OPC_WT", "OPC_KO", "COP_WT", "COP_KO", "NFOL_WT", "NFOL_KO","MFOL_WT", "MFOL_KO", "MOL2_WT", "MOL2_KO", "MOL56_WT" , "MOL56_KO" )
+
+p3 <- Clustered_DotPlot(seurat_object = CRL_SC.qch.singlet, features = CRL_genes , assay = "SCT" , colors_use_exp = viridis(50)  , cluster_ident = F , cluster_feature = F , plot_km_elbow =  F  , x_lab_rotate = 90) #  exp_color_min = -3, exp_color_max = 3
+
+p3
+
+VlnPlot_scCustom(CRL_SC.qch.singlet , features = CRL_genes)
+#Plot_Density_Custom(seurat_object = CRL_SC.qch.singlet, features = CRL_genes)
+Idents(CRL_SC.qch.singlet) <- "Celltypes_OLG"
+Stacked_VlnPlot(seurat_object = CRL_SC.qch.singlet, features = c("Gfap" ,  "Spp1"  , "C1qa" ,  "C1qb"), x_lab_rotate = TRUE,
+    colors_use = c("dodgerblue4" , "orange"), split.by = "sample",  split.plot = TRUE ,  assay = "RNA" , pt.size = 0.01)
+
+Stacked_VlnPlot(seurat_object = CRL_SC.qch.singlet, features = c("C1qc" ,  "Cd48"  , "Cd84" ,  "Irf8"), x_lab_rotate = TRUE,
+    colors_use = c("dodgerblue4" , "orange"), split.by = "sample",  split.plot = TRUE ,  assay = "RNA" , pt.size = 0.01)
+
+Idents(CRL_SC.qch.singlet) <- "Celltypes_OLG"
+Stacked_VlnPlot(seurat_object = CRL_SC.qch.singlet, features = c("zscore_immuno_path" , "zscore_antigen"), x_lab_rotate = TRUE,
+    colors_use = c("dodgerblue4" , "orange"), split.by = "sample",  split.plot = TRUE ,  assay = "RNA" , pt.size = 0.01)
+
+Stacked_VlnPlot(seurat_object = CRL_SC.qch.singlet, features = c("Antigen" , "immuno_path"), x_lab_rotate = TRUE,
+    colors_use = c("dodgerblue4" , "orange"), split.by = "sample",  split.plot = TRUE ,  assay = "RNA" , pt.size = 0.01)
+
+
+```
+```{r}
+p3
+
+setEPS()
+postscript("dotplot_OLG_KOWT_selectedgenes_Scord.eps",
+ width = 9, # The width of the plot in inches
+    height = 6) # The height of the plot in inches )
+p3
+dev.off()
+
+
+pdf(file = "dotplot_OLG_KOWT_selectedgenes_Scord.pdf",   # The directory you want to save the file in
+    width = 9, # The width of the plot in inches
+    height = 6) # The height of the plot in inches
+p3
+dev.off()
+
+```
+GSVA
+```{r}
+
+Idents(CRL_SC.qch.singlet) <- "Celltypes_OLG"
+
+unique(CRL_SC.qch.singlet$Celltypes_OLG)
+Idents(CRL_SC.qch.singlet) <- "Celltypes_OLG"
+
+OLG_sub  <- subset(CRL_SC.qch.singlet , idents=c("MOL2" ,     "MOL56"  ,     "OPC"    ,     "MFOL" ,       "NFOL"   ,       "COP") )
+
+pathways.hallmark <- gmtPathways("GSEA/mh.all.v2023.1.Mm.symbols.gmt")
+
+pathways.GO <- gmtPathways("GSEA/m5.go.bp.v2023.1.Mm.symbols.gmt")
+
+object_test <- as.matrix(GetAssayData(object = OLG_sub, assay = "SCT", slot = "data"))
+gsvaPar <- gsvaParam(object_test, pathways.hallmark )
+gsvaPar
+
+gsva.es <- gsva(gsvaPar, verbose=FALSE)
+```
+plot GSVA Hallmarks and C5 ontologies
+```{r}
+Idents(CRL_SC.qch.singlet) <- "Celltypes_OLG"
+OLG_sub <- subset(CRL_SC.qch.singlet , idents=c("Migl" , "Exc_neurons" , "Inh_neurons" , "Astro") , invert=T )
+
+```
+
+
+```{r}
+library(gplots) 
+    library(RColorBrewer)
+    
+    scalebluered <- colorRampPalette(c("blue", "white", "red" , "orange" , "blue" , "black"), space = "rgb")(256)
+    cols = brewer.pal(6, "Dark2")[1:6]
+  
+      library(vegan)
+      library(plyr)
+      library(viridis)
+    
+All_data <- (OLG_sub@meta.data)
+
+All_data <- read.table("olg_gsva_metadata_sorted2.tsv", stringsAsFactors=F)
+     
+All_data_t <- t(All_data)
+
+object_test <- as.matrix(GetAssayData(object = OLG_sub, assay = "SCT", slot = "data"))
+
+ top_devs <-   object_test[!rowSums(!is.finite(object_test)),] 
+top_devs[!is.finite(top_devs)] <- 0
+
+
+dev.scores_2 <- (object_test[,match(colnames(All_data_t), colnames(object_test))])
+dev.scores <- dev.scores_2    
+
+
+psi_assay <- CreateAssayObject(counts = gsva.es)
+
+OLG_sub[["gsva_H"]] <- psi_assay
+
+DefaultAssay(OLG_sub) <- "gsva_H"
+
+
+
+library(presto)
+
+DefaultAssay(CRL_SC.qch.singlet) <- "SCT"
+
+sc_allmarkers <- wilcoxauc(OLG_sub, 'Celltype_Cond' , seurat_assay = "gsva_H")
+Idents(OLG_sub) <- "Celltype_Cond"
+DefaultAssay(OLG_sub) <- "gsva_H"
+#wilcox
+sc_allmarkers <- FindAllMarkers(OLG_sub, group_by = 'Celltype_Cond' , assay = "gsva_H")
+sc_allmarkers.mast <- FindAllMarkers(OLG_sub, group_by = 'Celltype_Cond' , assay = "gsva_H" , method="MAST")
+rownames(sc_allmarkers.mast) <- gsub("-", "_", rownames(sc_allmarkers.mast)) 
+#wilcoon between pathways
+
+rownames(sc_allmarkers) <- gsub("-", "_", rownames(sc_allmarkers)) 
+top_devs2 = top_devs[which(rownames(top_devs) %in% rownames(sc_allmarkers)),]
+
+head(sc_allmarkers)
+
+#mOL
+DE_GO.list_OLG <- sc_allmarkers  %>% group_by(cluster) %>% filter( p_val_adj <= 0.05  )  #%>% arrange(desc(avg_log2FC) , .by_group = TRUE)  %>% group_split() 
+DE_GO.list_OLG
+dim(DE_GO.list_OLG)
+#wilcoxon between pathways
+DE_GO.list_OLG$GO <- gsub("-", "_", (DE_GO.list_OLG$gene)) 
+
+top_devs2 = top_devs[which(rownames(top_devs) %in% (DE_GO.list_OLG)),]
+##
+
+library(ComplexHeatmap)
+
+
+object_test <- as.matrix(GetAssayData(object = OLG_sub, assay = "gsva_H", slot = "data"))
+
+
+dev.scores_2 <- (object_test[,match(colnames(All_data_t), colnames(object_test))])
+dev.scores <- dev.scores_2    
+
+
+ top_devs <-   object_test[!rowSums(!is.finite(object_test)),] 
+top_devs[!is.finite(top_devs)] <- 0
+top_devs2 = top_devs[which(rownames(top_devs) %in% (DE_GO.list_OLG$gene)),]
+
+ha = HeatmapAnnotation(    celltype = All_data$V3 , condition = All_data$V2 ,     col = list(   celltype = c( "OPC" =  "#9a6324", "COP"="#008080", "NFOL"="#bcf60c","MOL56"="#3cb44b","MOL2"="#46f0f0","MFOL"="#4363d8" ) , sex =c("WT"="olivedrab3" , "KO"="tomato")  ) )
+
+
+Heatmap( (top_devs2) , show_column_names =F , row_names_gp = gpar( fontsize = 3 , fontface = "bold") , column_names_gp =  gpar( fontsize = 15 , fontface = "bold") , col = viridis(10) ,    column_title_gp = gpar( fontsize= 10 ) , row_title_gp = gpar( fontsize= 10 ), cluster_rows = T , cluster_columns = F , top_annotation = ha  )
+
+dim(top_devs2)
+dim(All_data_t)
+```
+
+```{r}
+Idents(OLG_sub) <- "Celltype_Cond"
+OLG.subset.averages <- AverageExpression( OLG_sub , assay = "gsva_H" , slot="counts" ,  return.seurat = F , features = c(DE_GO.list_OLG$gene))
+
+#scale rows 0 to 1
+OLG.subset.averages_norm <- t(apply(OLG.subset.averages$gsva_H, 1, function(x)(x-min(x))/(max(x)-min(x))))
+heatmap.2((as.matrix(OLG.subset.averages_norm)),  Rowv=F, Colv=T ,  col = viridis(50)) 
+heatmap.2((as.matrix(OLG.subset.averages$gsva_H)), trace = "none" ,  Rowv=F, Colv=T ,  col = viridis(50)) 
+
+Heatmap( (as.matrix(OLG.subset.averages$gsva_H)) , show_column_names =T , row_names_gp = gpar( fontsize = 6 , fontface = "bold") , column_names_gp =  gpar( fontsize = 6 , fontface = "bold") , col = viridis(10) ,    column_title_gp = gpar( fontsize= 30 ) , row_title_gp = gpar( fontsize=30 ) ,  cluster_rows = T , cluster_columns = T)
+
+Heatmap( (as.matrix(OLG.subset.averages_norm)) , show_column_names =T , row_names_gp = gpar( fontsize = 6 , fontface = "bold") , column_names_gp =  gpar( fontsize = 6 , fontface = "bold") , col = viridis(10) ,    column_title_gp = gpar( fontsize= 30 ) , row_title_gp = gpar( fontsize=30 ) ,  cluster_rows = T , cluster_columns = T)
+
+Heatmap( (as.matrix(OLG.subset.averages_norm)) , show_column_names =T , row_names_gp = gpar( fontsize = 6 , fontface = "bold") , column_names_gp =  gpar( fontsize = 6 , fontface = "bold") , col = viridis(10) ,    column_title_gp = gpar( fontsize= 30 ) , row_title_gp = gpar( fontsize=30 ) ,  cluster_rows = T , cluster_columns = F)
+```
+```{r , fig.height=10 , fig.width=5}
+Idents(OLG_sub) <- "Celltype_Cond"
+OLG.subset.averages <- AverageExpression( OLG_sub , assay = "gsva_H" , slot="counts" ,  return.seurat = F , features = rownames(OLG_sub) )
+
+#scale rows 0 to 1
+OLG.subset.averages_norm <- t(apply(OLG.subset.averages$gsva_H, 1, function(x)(x-min(x))/(max(x)-min(x))))
+
+heatmap.2((as.matrix(OLG.subset.averages_norm)),  Rowv=F, Colv=T ,  col = viridis(50))
+heatmap.2((as.matrix(OLG.subset.averages$gsva_H)), trace = "none" ,  Rowv=F, Colv=T ,  col = viridis(50)) 
+
+Heatmap( (as.matrix(OLG.subset.averages$gsva_H)) , show_column_names =T , row_names_gp = gpar( fontsize = 6 , fontface = "bold") , column_names_gp =  gpar( fontsize = 6 , fontface = "bold") , col = viridis(10) ,    column_title_gp = gpar( fontsize= 30 ) , row_title_gp = gpar( fontsize=30 ) ,  cluster_rows = T , cluster_columns = T)
+
+
+Heatmap( (as.matrix(OLG.subset.averages_norm)) , show_column_names =T , row_names_gp = gpar( fontsize = 6 , fontface = "bold") , column_names_gp =  gpar( fontsize = 6 , fontface = "bold") , col = viridis(10) ,    column_title_gp = gpar( fontsize= 30 ) , row_title_gp = gpar( fontsize=30 ) ,  cluster_rows = T , cluster_columns = T , , name = "norm cluster score")
+
+
+Heatmap( (as.matrix(OLG.subset.averages_norm)) , show_column_names =T , row_names_gp = gpar( fontsize = 6 , fontface = "bold") , column_names_gp =  gpar( fontsize = 6 , fontface = "bold") , col = viridis(10) ,    column_title_gp = gpar( fontsize= 30 ) , row_title_gp = gpar( fontsize=30 ) ,  cluster_rows = T , cluster_columns = )
+```
+
+```{r}
+pdf(file = "Hallmarks_all_OLG_norm01.pdf")
+Heatmap( (as.matrix(OLG.subset.averages_norm)) , show_column_names =T , row_names_gp = gpar( fontsize = 6 , fontface = "bold") , column_names_gp =  gpar( fontsize = 6 , fontface = "bold") , col = viridis(10) ,    column_title_gp = gpar( fontsize= 30 ) , row_title_gp = gpar( fontsize=30 ) ,  cluster_rows = T , cluster_columns = T , , name = "norm cluster score")
+
+dev.off()
+```
+
+plot in order the hallmarks
+average and only significant
+```{r}
+Idents(OLG_sub) <- "Celltype_Cond"
+OLG.subset.averages <- AverageExpression( OLG_sub , assay = "gsva_H" , slot="counts" ,  return.seurat = F , features = rownames(OLG_sub) )
+
+#scale rows 0 to 1
+OLG.subset.averages_norm <- t(apply(OLG.subset.averages$gsva_H, 1, function(x)(x-min(x))/(max(x)-min(x))))
+
+rownames(top_devs2)
+unique(DE_GO.list_OLG$gene)
+#only 8
+
+filtered_norm = OLG.subset.averages_norm[which(rownames(OLG.subset.averages_norm) %in% (DE_GO.list_OLG$gene)),]
+
+order(colnames(filtered_norm))
+
+Heatmap( (as.matrix(filtered_norm)) , show_column_names =T , row_names_gp = gpar( fontsize = 6 , fontface = "bold") , column_names_gp =  gpar( fontsize = 6 , fontface = "bold") , col = viridis(10) ,    column_title_gp = gpar( fontsize= 30 ) , row_title_gp = gpar( fontsize=30 ) ,  cluster_rows = T , cluster_columns = F , column_order = 
+order(colnames(filtered_norm)) )
+
+
+
+#mOL
+DE_GO.list_OLG.mast <- sc_allmarkers.mast  %>% group_by(cluster) %>% filter( p_val_adj <= 0.05  )  #%>% arrange(desc(avg_log2FC) , .by_group = TRUE)  %>% group_split() 
+DE_GO.list_OLG.mast
+dim(DE_GO.list_OLG.mast)
+#wilcoxon between pathways
+DE_GO.list_OLG.mast$GO <- gsub("-", "_", (DE_GO.list_OLG.mast$gene)) 
+unique(DE_GO.list_OLG.mast$gene)
+#only 8
+```
+
+reorder the columns
+and rename WT  and KO by Ctr and taf
+
+plot in order the hallmarks
+average and only significant
+```{r}
+#Taf1d38
+#wt
+unique(OLG_sub$Celltype_Cond)
+OLG_sub$Celltype_Expr <- OLG_sub$Celltype_Cond
+OLG_sub@meta.data <- OLG_sub@meta.data %>% mutate(Celltype_Expr = replace(Celltype_Expr, Celltype_Expr == "MOL2_WT", "MOL2-wt")) %>%
+mutate(Celltype_Expr = replace(Celltype_Expr, Celltype_Expr == "MOL56_WT", "MOL56-wt")) %>%
+mutate(Celltype_Expr = replace(Celltype_Expr, Celltype_Expr == "OPC_WT", "OPC-wt")) %>%  
+mutate(Celltype_Expr = replace(Celltype_Expr, Celltype_Expr == "MFOL_WT", "MFOL-wt")) %>%  
+mutate(Celltype_Expr = replace(Celltype_Expr, Celltype_Expr == "NFOL_WT", "NFOL-wt")) %>%  
+mutate(Celltype_Expr = replace(Celltype_Expr, Celltype_Expr == "COP_WT", "COP-wt")) %>%  
+mutate(Celltype_Expr = replace(Celltype_Expr, Celltype_Expr == "NFOL_KO", "NFOL-Taf1d38")) %>%  
+mutate(Celltype_Expr = replace(Celltype_Expr, Celltype_Expr == "OPC_KO", "OPC-Taf1d38")) %>%
+mutate(Celltype_Expr = replace(Celltype_Expr, Celltype_Expr == "MOL56_KO", "MOL56-Taf1d38")) %>%  
+mutate(Celltype_Expr = replace(Celltype_Expr, Celltype_Expr == "MFOL_KO", "MFOL-Taf1d38")) %>%  
+mutate(Celltype_Expr = replace(Celltype_Expr, Celltype_Expr == "MOL2_KO", "MOL2-Taf1d38")) %>%  
+mutate(Celltype_Expr = replace(Celltype_Expr, Celltype_Expr == "COP_KO", "COP-Taf1d38")) 
+  
+Idents(OLG_sub) <- "Celltype_Cond"
+OLG.subset.averages <- AverageExpression( OLG_sub , assay = "gsva_H" , slot="counts" ,  return.seurat = F , features = rownames(OLG_sub) )
+
+#scale rows 0 to 1
+OLG.subset.averages_norm <- t(apply(OLG.subset.averages$gsva_H, 1, function(x)(x-min(x))/(max(x)-min(x))))
+
+rownames(top_devs2)
+unique(DE_GO.list_OLG$gene)
+#only 8
+
+filtered_norm = OLG.subset.averages_norm[which(rownames(OLG.subset.averages_norm) %in% (DE_GO.list_OLG$gene)),]
+
+order(colnames(filtered_norm))
+
+order_expr <- c( 3, 6 ,5 ,4 ,1 ,2 ,8 ,12, 7, 10 ,11 ,9)
+
+Heatmap( (as.matrix(filtered_norm)) , show_column_names =T , row_names_gp = gpar( fontsize = 6 , fontface = "bold") , column_names_gp =  gpar( fontsize = 6 , fontface = "bold") , col = viridis(10) ,    column_title_gp = gpar( fontsize= 30 ) , row_title_gp = gpar( fontsize=30 ) ,  cluster_rows = T , cluster_columns = F , column_order = order_expr
+ )
+
+
+```
+
+```{r}
+
+#assay gsva_H
+Idents(OLG_sub) <- "Celltype_Cond"
+sc_OPCWTKO_allmarkers <- FindMarkers(OLG_sub,  ident.1 = "OPC_WT" , ident.2 = "OPC_KO" , test.use = "MAST")
+Idents(OLG_sub) <- "Celltype_Cond"
+sc_MOL2WTKO_allmarkers <- FindMarkers(OLG_sub,  ident.1 = "MOL2_WT" , ident.2 = "MOL2_KO" , test.use = "MAST")
+Idents(OLG_sub) <- "Celltype_Cond"
+sc_MOL56WTKO_allmarkers <- FindMarkers(OLG_sub,  ident.1 = "MOL56_WT" , ident.2 = "MOL56_KO" , test.use = "MAST")
+Idents(OLG_sub) <- "Celltype_Cond"
+sc_NFOLWTKO_allmarkers <- FindMarkers(OLG_sub,  ident.1 = "NFOL_WT" , ident.2 = "NFOL_KO" , test.use = "MAST")
+Idents(OLG_sub) <- "Celltype_Cond"
+sc_MFOLWTKO_allmarkers <- FindMarkers(OLG_sub,  ident.1 = "MFOL_WT" , ident.2 = "MFOL_KO" , test.use = "MAST")
+Idents(OLG_sub) <- "Celltype_Cond"
+sc_COPWTKO_allmarkers <- FindMarkers(OLG_sub,  ident.1 = "COP_WT" , ident.2 = "COP_KO" , test.use = "MAST")
+
+OPC_markers <- sc_OPCWTKO_allmarkers %>% rownames_to_column( var="H" ) %>%  filter( p_val_adj <= 0.05  ) %>% mutate( celltype = "OPC" ) #%>% arrange(desc(avg_log2FC) , .by_group = TRUE)  %>% group_split() 
+MOL56_markers <- sc_OPCWTKO_allmarkers %>% rownames_to_column( var="H" ) %>%  filter( p_val_adj <= 0.05  ) %>% mutate( celltype = "MOL56" )
+MOL2_markers <- sc_MOL2WTKO_allmarkers %>% rownames_to_column( var="H" ) %>%  filter( p_val_adj <= 0.05  ) %>% mutate( celltype = "MOL2" )
+COP_markers <- sc_COPWTKO_allmarkers %>% rownames_to_column( var="H" ) %>%  filter( p_val_adj <= 0.05  ) %>% mutate( celltype = "COP" )
+NFOL_markers <- sc_NFOLWTKO_allmarkers %>% rownames_to_column( var="H" ) %>%  filter( p_val_adj <= 0.05  ) %>% mutate( celltype = "NFOL" )
+MFOL_markers <- sc_MFOLWTKO_allmarkers %>% rownames_to_column( var="H" ) %>%  filter( p_val_adj <= 0.05  ) %>% mutate( celltype = "MFOL" )
+
+
+H_markers_together <- bind_rows( OPC_markers , MFOL_markers , MOL2_markers , MOL56_markers) #%>% column_to_rownames(var="GO")# COP_markers , NFOL_markers 
+
+filtered_WTKO_H_markers = OLG.subset.averages_norm[which(rownames(OLG.subset.averages_norm) %in% (H_markers_together$H  )),]
+
+```
+```{r}
+
+#assay gsva_H
+Idents(OLG_sub) <- "Celltype_Cond"
+sc_OPCWTKO_allmarkers <- FindMarkers(OLG_sub,  ident.1 = "OPC_WT" , ident.2 = "OPC_KO" )
+Idents(OLG_sub) <- "Celltype_Cond"
+sc_MOL2WTKO_allmarkers <- FindMarkers(OLG_sub,  ident.1 = "MOL2_WT" , ident.2 = "MOL2_KO" )
+Idents(OLG_sub) <- "Celltype_Cond"
+sc_MOL56WTKO_allmarkers <- FindMarkers(OLG_sub,  ident.1 = "MOL56_WT" , ident.2 = "MOL56_KO" )
+Idents(OLG_sub) <- "Celltype_Cond"
+sc_NFOLWTKO_allmarkers <- FindMarkers(OLG_sub,  ident.1 = "NFOL_WT" , ident.2 = "NFOL_KO" )
+Idents(OLG_sub) <- "Celltype_Cond"
+sc_MFOLWTKO_allmarkers <- FindMarkers(OLG_sub,  ident.1 = "MFOL_WT" , ident.2 = "MFOL_KO" )
+Idents(OLG_sub) <- "Celltype_Cond"
+sc_COPWTKO_allmarkers <- FindMarkers(OLG_sub,  ident.1 = "COP_WT" , ident.2 = "COP_KO" )
+
+OPC_markers <- sc_OPCWTKO_allmarkers %>% rownames_to_column( var="H" ) %>%  filter( p_val_adj <= 0.05  ) %>% mutate( celltype = "OPC" ) #%>% arrange(desc(avg_log2FC) , .by_group = TRUE)  %>% group_split() 
+MOL56_markers <- sc_OPCWTKO_allmarkers %>% rownames_to_column( var="H" ) %>%  filter( p_val_adj <= 0.05  ) %>% mutate( celltype = "MOL56" )
+MOL2_markers <- sc_MOL2WTKO_allmarkers %>% rownames_to_column( var="H" ) %>%  filter( p_val_adj <= 0.05  ) %>% mutate( celltype = "MOL2" )
+COP_markers <- sc_COPWTKO_allmarkers %>% rownames_to_column( var="H" ) %>%  filter( p_val_adj <= 0.05  ) %>% mutate( celltype = "COP" )
+NFOL_markers <- sc_NFOLWTKO_allmarkers %>% rownames_to_column( var="H" ) %>%  filter( p_val_adj <= 0.05  ) %>% mutate( celltype = "NFOL" )
+MFOL_markers <- sc_MFOLWTKO_allmarkers %>% rownames_to_column( var="H" ) %>%  filter( p_val_adj <= 0.05  ) %>% mutate( celltype = "MFOL" )
+
+
+H_markers_together <- bind_rows( OPC_markers , MFOL_markers , MOL2_markers , MOL56_markers) #%>% column_to_rownames(var="GO")# COP_markers , NFOL_markers 
+
+filtered_WTKO_H_markers = OLG.subset.averages_norm[which(rownames(OLG.subset.averages_norm) %in% (H_markers_together$H  )),]
+
+```
+
+```{r}
+
+Idents(OLG_sub) <- "Celltype_Expr"
+OLG.subset.averages <- AverageExpression( OLG_sub , assay = "gsva_H" , slot="counts" ,  return.seurat = F , features = rownames(OLG_sub) )
+
+#scale rows 0 to 1
+OLG.subset.averages_norm <- t(apply(OLG.subset.averages$gsva_H, 1, function(x)(x-min(x))/(max(x)-min(x))))
+
+rownames(top_devs2)
+unique(DE_GO.list_OLG$gene)
+#only 8
+
+filtered_norm = OLG.subset.averages_norm[which(rownames(OLG.subset.averages_norm) %in% (DE_GO.list_OLG$gene)),]
+
+order(colnames(filtered_norm))
+
+order_expr <- c( 3, 6 ,5 ,4 ,1 ,2 ,8 ,12, 7, 10 ,11 ,9)
+Idents(OLG_sub) <- "Celltypes_expr"
+ myorder <- c("OPC-wt",   "COP-wt" ,   "NFOL-wt" ,   "MFOL-wt",  "MOL2-wt"  ,"MOL56-wt" , "OPC-Taf1d38",   "COP-Taf1d38" ,   "NFOL-Taf1d38" ,   "MFOL-Taf1d38",  "MOL2-Taf1d38"  ,"MOL56-Taf1d38" )  
+
+Heatmap( (as.matrix(filtered_norm)) , show_column_names =T , row_names_gp = gpar( fontsize = 6 , fontface = "bold") , column_names_gp =  gpar( fontsize = 6 , fontface = "bold") , col = viridis(10) ,    column_title_gp = gpar( fontsize= 30 ) , row_title_gp = gpar( fontsize=30 ) ,  cluster_rows = T , cluster_columns = F , column_order = myorder
+ )
+
+
+
+filtered_WTKO_H_markers = OLG.subset.averages_norm[which(rownames(OLG.subset.averages_norm) %in% (H_markers_together$H  )),]
+
+```
+
+```{r}
+pdf(file = "Hallmarks_all_OLG_norm01_sorted_WTvsKO005wilcox_reorderwt_taf1d38.pdf")
+#unique(OLG_sub$Celltype_Expr)
+Idents(OLG_sub) <- "Celltypes_expr"
+ myorder <- c("OPC-wt",   "COP-wt" ,   "NFOL-wt" ,   "MFOL-wt",  "MOL2-wt"  ,"MOL56-wt" , "OPC-Taf1d38",   "COP-Taf1d38" ,   "NFOL-Taf1d38" ,   "MFOL-Taf1d38",  "MOL2-Taf1d38"  ,"MOL56-Taf1d38" )  
+
+# filtered_norm[ , myorder]
+ #sig hallmarks 
+Heatmap( (as.matrix(filtered_WTKO_H_markers[ , myorder])) , show_column_names =T , row_names_gp = gpar( fontsize = 6 , fontface = "bold") , column_names_gp =  gpar( fontsize = 6 , fontface = "bold") , col = viridis(10) ,    column_title_gp = gpar( fontsize= 30 ) , row_title_gp = gpar( fontsize=30 ) ,  cluster_rows = T , cluster_columns = F ,  name = "norm H score" )
+
+dev.off()
+```
+
+
+
+```{r}
+CRL_SC.qch.singlet$Experiment <- CRL_SC.qch.singlet$sample
+CRL_SC.qch.singlet@meta.data <- CRL_SC.qch.singlet@meta.data %>% mutate(Experiment = replace(Experiment , Experiment == "WT", "wt"))   %>%
+   mutate(Experiment = replace(Experiment , Experiment == "KO", "Taf1d38"))   
+CRL_SC.qch.singlet$Celltype_Expr  <- paste(CRL_SC.qch.singlet$Celltypes_OLG , CRL_SC.qch.singlet$Experiment , sep="-")
+```
+
+```{r}
+pdf(file = "ALL_top10_adjpv005fc01_dotplot_KOWT_OLG_experimentTaf1d38.pdf")
+
+DE_ALL.list <- DE_WTKO_ALL %>% group_by(cell_type) %>% dplyr::filter( p_val_adj < 0.05 & abs(avg_logFC) >= 0.1 )  %>% dplyr::arrange(desc(avg_logFC) , .by_group = TRUE) %>% top_n(n = 10, wt = avg_logFC)  #%>% group_split()
+library(viridis)
+
+DE_ALL.list
+unique(CRL_SC.qch.singlet$Celltype_Expr)
+Idents(CRL_SC.qch.singlet) <- "Celltype_Expr"
+levels( CRL_SC.qch.singlet) <-  c("Exc_neurons-wt", "Inh_neurons-wt", "Astro-wt", "Migl-wt", "OPC-wt", "COP-wt", "NFOL-wt", "MFOL-wt", "MOL2-wt", "MOL56-wt" , "Exc_neurons-Taf1d38", "Inh_neurons-Taf1d38", "Astro-Taf1d38", "Migl-Taf1d38", "OPC-Taf1d38", "COP-Taf1d38", "NFOL-Taf1d38", "MFOL-Taf1d38", "MOL2-Taf1d38", "MOL56-Taf1d38")
+Clustered_DotPlot(seurat_object = CRL_SC.qch.singlet , features = c((DE_ALL.list$gene) ) , assay = "SCT" , colors_use_exp = viridis(20) ,  exp_color_min = -2, exp_color_max = 2   , group.by ="Celltype_Expr" , plot_km_elbow = F , cluster_ident = F )
+
+
+dev.off()
+```
+
+
+
+only oLGs
+```{r ,fig.height=8 , fig.width=6.5}
+Idents(CRL_SC.qch.singlet) <- "Celltypes_OLG"
+
+OLG_sub <- subset(CRL_SC.qch.singlet , idents=c("Migl" , "Exc_neurons" , "Inh_neurons" , "Astro") , invert=T )
+#CRL_SC.qch.singlet$Celltype_Cond  <- paste(CRL_SC.qch.singlet$Celltypes_OLG , CRL_SC.qch.singlet$sample , sep="_")
+
+
+DE_WTKO_OLG_only <- Libra::run_de(  OLG_sub ,    n_threads = detectCores() - 1,    replicate_col = "rep_sample",    label_col = "sample",    cell_type_col = "Celltypes_OLG") ##not sure
+
+
+DE_OLGsub.list <- DE_WTKO_OLG_only %>% group_by(cell_type) %>% dplyr::filter( p_val_adj < 0.05 & abs(avg_logFC) >= 0.1 )  %>% dplyr::arrange(desc(avg_logFC) , .by_group = TRUE) %>% top_n(n = 20, wt = avg_logFC)  #%>% group_split()
+library(viridis)
+
+DE_OLGsub.list
+Idents(OLG_sub) <- "Celltype_Cond"
+
+
+levels(OLG_sub) <-  c( "OPC_WT", "OPC_KO", "COP_WT", "COP_KO" , "NFOL_WT", "NFOL_KO", "MFOL_WT" , "MFOL_KO" , "MOL2_WT", "MOL2_KO" , "MOL56_WT" , "MOL56_KO")
+
+Clustered_DotPlot(seurat_object = OLG_sub , features = (DE_OLGsub.list$gene) , assay = "SCT" , colors_use_exp = viridis(20) ,  exp_color_min = -2, exp_color_max = 2   , group.by ="Celltype_Cond" , plot_km_elbow = F , cluster_ident = F )
+```
+for claudia
+
+```{r}
+pdf(file = "OLG_top20_adjpv005fc01_dotplot_KOWT_OLG.pdf")
+
+DE_OLGsub.list <- DE_WTKO_OLG_only %>% group_by(cell_type) %>% dplyr::filter( p_val_adj < 0.05 & abs(avg_logFC) >= 0.1 )  %>% dplyr::arrange(desc(avg_logFC) , .by_group = TRUE) %>% top_n(n = 20, wt = avg_logFC)  #%>% group_split()
+library(viridis)
+
+DE_OLGsub.list
+Idents(OLG_sub) <- "Celltype_Cond"
+
+
+levels(OLG_sub) <-  c( "OPC_WT", "OPC_KO", "COP_WT", "COP_KO" , "NFOL_WT", "NFOL_KO", "MFOL_WT" , "MFOL_KO" , "MOL2_WT", "MOL2_KO" , "MOL56_WT" , "MOL56_KO")
+
+Clustered_DotPlot(seurat_object = OLG_sub , features = (DE_OLGsub.list$gene) , assay = "SCT" , colors_use_exp = viridis(20) ,  exp_color_min = -2, exp_color_max = 2   , group.by ="Celltype_Cond" , plot_km_elbow = F , cluster_ident = F )
+```
+
+```{r}
+
+
+DE_OLGsub.list <- DE_WTKO_OLG_only %>% group_by(cell_type) %>% dplyr::filter( p_val_adj < 0.05 & abs(avg_logFC) >= 0.1 )  %>% dplyr::arrange(desc(avg_logFC) , .by_group = TRUE) #%>% top_n(n = 10, wt = avg_logFC)  #%>% group_split()
+library(viridis)
+
+```
+
+only olg with their markers with the complete markers
+```{r, fig.height=8 , fig.width=6.5}
+Idents(OLG_sub) <- "Celltype_Cond"
+
+
+levels(OLG_sub) <-  c( "OPC_WT", "OPC_KO", "COP_WT", "COP_KO" , "NFOL_WT", "NFOL_KO", "MFOL_WT" , "MFOL_KO" , "MOL2_WT", "MOL2_KO" , "MOL56_WT" , "MOL56_KO")
+
+Clustered_DotPlot(seurat_object = OLG_sub , features = (DE_OLGsub.list$gene) , assay = "SCT" , colors_use_exp = viridis(20) ,  exp_color_min = -2, exp_color_max = 2   , group.by ="Celltype_Cond" , plot_km_elbow = F   , cluster_ident = F  )
+
+
+Clustered_DotPlot(seurat_object = OLG_sub , features = (DE_ALL.list$gene) , assay = "SCT" , colors_use_exp = viridis(20) ,  exp_color_min = -2, exp_color_max = 2   , group.by ="Celltype_Cond" , plot_km_elbow = F , cluster_ident = F )
+
+
+
+DE_OLGsub.list <- DE_WTKO_OLG_only %>% group_by(cell_type) %>% dplyr::filter( p_val_adj < 0.05 & abs(avg_logFC) >= 0.1 )  %>% dplyr::arrange(desc(avg_logFC) , .by_group = TRUE) #%>% top_n(n = 10, wt = avg_logFC)  #%>% group_split()
+library(viridis)
+```
+
+
+
+
+
+```{r}
+CRL_genes <- c("Gfap",
+"Spp1",
+"C1qa",
+"C1qb",
+"C1qc",
+"Cd48",
+"Cd84",
+"Irf8",
+"Gpnmb",
+"Ninj2",
+"Anln",
+"Ptgds",
+"Sez6l2",
+"Hapln2")
+```
+
+```{r, fig.height=5 , fig.width=5}
+Idents(OLG_sub) <- "Celltype_Cond"
+
+
+levels(OLG_sub) <-  c( "OPC_WT", "OPC_KO", "COP_WT", "COP_KO" , "NFOL_WT", "NFOL_KO", "MFOL_WT" , "MFOL_KO" , "MOL2_WT", "MOL2_KO" , "MOL56_WT" , "MOL56_KO")
+
+Clustered_DotPlot(seurat_object = OLG_sub , features = (CRL_genes) , assay = "SCT" , colors_use_exp = viridis(20) ,  exp_color_min = -2, exp_color_max = 2   , group.by ="Celltype_Cond" , plot_km_elbow = F   , cluster_ident = F  )
+```
+```{r}
+pdf(file = "selected_genes_dotplot_KOWT_OLG.pdf")
+Idents(OLG_sub) <- "Celltype_Cond"
+
+
+levels(OLG_sub) <-  c( "OPC_WT", "OPC_KO", "COP_WT", "COP_KO" , "NFOL_WT", "NFOL_KO", "MFOL_WT" , "MFOL_KO" , "MOL2_WT", "MOL2_KO" , "MOL56_WT" , "MOL56_KO")
+
+Clustered_DotPlot(seurat_object = OLG_sub , features = (CRL_genes) , assay = "SCT" , colors_use_exp = viridis(20) ,  exp_color_min = -2, exp_color_max = 2   , group.by ="Celltype_Cond" , plot_km_elbow = F   , cluster_ident = F  )
+dev.off()
+```
+
+```{r, fig.height=6 , fig.width=6}
+Clustered_DotPlot(seurat_object = CRL_SC.qch.singlet , features = CRL_genes , assay = "SCT" , colors_use_exp = viridis(20) ,  exp_color_min = -2, exp_color_max = 2   , group.by ="Celltype_Cond" , plot_km_elbow = F , cluster_ident = F )
+
+```
+general all markers all celltypes
+
+```{r}
+Idents(CRL_SC.qch.singlet) <- "Celltypes_OLG"
+All_wilcox_general_markers <- FindAllMarkers( CRL_SC.qch.singlet)
+ 
+OLG_sub_wilcox_WTKO_markers
+
+DE_all_wilcox_general.list <- All_wilcox_general_markers %>% group_by(cluster) %>% dplyr::filter( p_val_adj < 0.05 & (avg_log2FC) > 0 )  %>% dplyr::arrange(desc(avg_log2FC) , .by_group = TRUE) %>% top_n(n = 10, wt = avg_log2FC)  #%>% group_split()
+
+
+DE_all_wilcox_general.list
+```
+```{r, fig.height=15 , fig.width=5.5}
+Idents(CRL_SC.qch.singlet) <- "Celltypes_OLG"
+
+
+levels(CRL_SC.qch.singlet) <-  c( c("Exc_neurons" ,
+"Inh_neurons", "Astro",  "Migl",  "OPC", "COP",  "NFOL",  "MFOL",  "MOL2",  "MOL56" )
+)
+
+Clustered_DotPlot(seurat_object = CRL_SC.qch.singlet , features = DE_all_wilcox_general.list$gene , assay = "SCT" , colors_use_exp = viridis(20) ,  exp_color_min = -2, exp_color_max = 2   , group.by ="Celltypes_OLG" , plot_km_elbow = F   , cluster_ident = F  )
+```
+```{r}
+Idents(OLG_sub) <- "Celltypes_OLG"
+OLG_sub_wilcox_general_markers <- FindAllMarkers( OLG_sub )
+ 
+OLG_sub_wilcox_general_markers
+
+DE_OLGsub_wilcox_general.list <- OLG_sub_wilcox_general_markers %>% group_by(cluster) %>% dplyr::filter( p_val_adj < 0.05 & (avg_log2FC) >= 0.1 )  %>% dplyr::arrange(desc(avg_log2FC) , .by_group = TRUE) %>% top_n(n = 10, wt = avg_log2FC) 
+DE_OLGsub_wilcox_wtko.list
+```
+```{r, fig.height=15 , fig.width=5.5}
+Idents(OLG_sub) <- "Celltypes_OLG"
+
+
+levels(OLG_sub) <-  c( "OPC",  "COP",  "NFOL",  "MFOL" , "MOL2",  "MOL56")
+
+Clustered_DotPlot(seurat_object = OLG_sub , features = DE_OLGsub_wilcox_general.list$gene , assay = "SCT" , colors_use_exp = viridis(20) ,  exp_color_min = -2, exp_color_max = 2   , group.by ="Celltypes_OLG" , plot_km_elbow = F   , cluster_ident = F  )
+```
+```{r}
+Idents(OLG_sub) <- "Celltype_Cond"
+OLG_sub_wilcox_WTKO_markers <- FindAllMarkers( OLG_sub )
+ 
+OLG_sub_wilcox_WTKO_markers
+
+DE_OLGsub_wilcox_wtko.list <- OLG_sub_wilcox_WTKO_markers %>% group_by(cluster) %>% dplyr::filter( p_val_adj < 0.05 & (avg_log2FC) >= 0.1 )  %>% dplyr::arrange(desc(avg_log2FC) , .by_group = TRUE) %>% top_n(n = 10, wt = avg_log2FC)  
+DE_OLGsub_wilcox_wtko.list
+```
+```{r, fig.height=15 , fig.width=5.5}
+Idents(OLG_sub) <- "Celltype_Cond"
+
+
+levels(OLG_sub) <-  c( "OPC_WT", "OPC_KO", "COP_WT", "COP_KO" , "NFOL_WT", "NFOL_KO", "MFOL_WT" , "MFOL_KO" , "MOL2_WT", "MOL2_KO" , "MOL56_WT" , "MOL56_KO")
+
+Clustered_DotPlot(seurat_object = OLG_sub , features = DE_OLGsub_wilcox_wtko.list$gene , assay = "SCT" , colors_use_exp = viridis(20) ,  exp_color_min = -2, exp_color_max = 2   , group.by ="Celltype_Cond" , plot_km_elbow = F   , cluster_ident = F  )
+```
+top5 and foldchange > 0.2
+```{r ,fig.height=15 , fig.width=5.5}
+
+DE_OLGsub_wilcox_wtko.listtop5 <- OLG_sub_wilcox_WTKO_markers %>% group_by(cluster) %>% dplyr::filter( p_val_adj < 0.05 & abs(avg_log2FC) > 0.2 )  %>% dplyr::arrange(desc(avg_log2FC) , .by_group = TRUE) %>% top_n(n = 5, wt = avg_log2FC)  #%>% group_split()
+
+Idents(OLG_sub) <- "Celltype_Cond"
+
+
+levels(OLG_sub) <-  c( "OPC_WT", "OPC_KO", "COP_WT", "COP_KO" , "NFOL_WT", "NFOL_KO", "MFOL_WT" , "MFOL_KO" , "MOL2_WT", "MOL2_KO" , "MOL56_WT" , "MOL56_KO")
+
+Clustered_DotPlot(seurat_object = OLG_sub , features = DE_OLGsub_wilcox_wtko.listtop5$gene , assay = "SCT" , colors_use_exp = viridis(20) ,  exp_color_min = -2, exp_color_max = 2   , group.by ="Celltype_Cond" , plot_km_elbow = F   , cluster_ident = F  )
+
+```
+double check downsampling of the proportions
+```{r}
+
+Idents(CRL_SC.qch.singlet) <- "Celltypes_OLG"
+
+
+table(CRL_SC.qch.singlet$Celltypes_OLG , CRL_SC.qch.singlet$sample)
+table(CRL_SC.qch.singlet$sample)
+table(CRL_SC.qch.singlet$rep_sample)
+
+Idents(CRL_SC.qch.singlet) <- "rep_sample"
+CRL_down50 <- subset( CRL_SC.qch.singlet , downsample = 2000)
+###############################################################33
+
+(freq_table <- prop.table(x = table(  CRL_down50$sample , CRL_down50$Celltypes_OLG ), 
+                          margin = 2))
+
+lala <- as.data.frame(freq_table)
+colnames(lala ) <- c("cluster" , "sample" , "Norm_freq")
+library(ggplot2)
+p3 <-   ggplot(data=lala, aes(x=(sample), y=Norm_freq, fill=(cluster))) +
+  geom_bar(stat="identity")+  
+  
+theme(axis.text.x =  element_text(angle = 70, hjust = 1)) 
+p3
+
+CRL_down50 <- subset( CRL_SC.qch.singlet , downsample = 2000)
+###############################################################33
+
+(freq_table <- prop.table(x = table(  CRL_down50$sample , CRL_down50$Celltypes_OLG ), 
+                          margin = 2))
+
+lala <- as.data.frame(freq_table)
+colnames(lala ) <- c("cluster" , "sample" , "Norm_freq")
+library(ggplot2)
+p4 <-   ggplot(data=lala, aes(x=(sample), y=Norm_freq, fill=(cluster))) +
+  geom_bar(stat="identity")+  
+  
+theme(axis.text.x =  element_text(angle = 70, hjust = 1)) 
+p4
+```
+double check downsampling of the proportions by replicate
+```{r}
+Idents(CRL_SC.qch.singlet) <- "Celltypes_OLG"
+
+
+table(CRL_SC.qch.singlet$Celltypes_OLG , CRL_SC.qch.singlet$sample)
+table(CRL_SC.qch.singlet$sample)
+table(CRL_SC.qch.singlet$rep_sample)
+table(CRL_SC.qch.singlet$replicate_v2)
+
+Idents(CRL_SC.qch.singlet) <- "rep_sample"
+CRL_down50 <- subset( CRL_SC.qch.singlet , downsample = 2000)
+###############################################################33
+
+(freq_table <- prop.table(x = table(  CRL_down50$rep_sample , CRL_down50$Celltypes_OLG ), 
+                          margin = 2))
+
+lala <- as.data.frame(freq_table)
+colnames(lala ) <- c("cluster" , "sample" , "Norm_freq")
+library(ggplot2)
+p3 <-   ggplot(data=lala, aes(x=(sample), y=Norm_freq, fill=(cluster))) +
+  geom_bar(stat="identity")+  
+  
+theme(axis.text.x =  element_text(angle = 70, hjust = 1)) 
+p3
+
+CRL_down50 <- subset( CRL_SC.qch.singlet , downsample = 2000)
+###############################################################33
+
+(freq_table <- prop.table(x = table(  CRL_down50$rep_sample , CRL_down50$Celltypes_OLG ), 
+                          margin = 2))
+
+lala <- as.data.frame(freq_table)
+colnames(lala ) <- c("cluster" , "sample" , "Norm_freq")
+library(ggplot2)
+p4 <-   ggplot(data=lala, aes(x=(sample), y=Norm_freq, fill=(cluster))) +
+  geom_bar(stat="identity")+  
+  
+  scale_fill_brewer(palette="Paired")+
+theme(axis.text.x =  element_text(angle = 70, hjust = 1)) 
+p4
+
+###
+```
+
+checking by replicate batch
+```{r}
+Idents(CRL_SC.qch.singlet) <- "rep_sample"
+rep1_sub <- subset( CRL_SC.qch.singlet , idents= c( "KO2" , "WT1"))
+rep2_sub <- subset( CRL_SC.qch.singlet , idents= c( "KO3" , "WT3"))
+rep3_sub <- subset( CRL_SC.qch.singlet , idents= c( "KO4" , "WT4"))
+
+
+CRL_down <- subset( rep1_sub , downsample = 2000)
+
+(freq_table <- prop.table(x = table(  CRL_down$sample , CRL_down$Celltypes_OLG ), 
+                          margin = 2))
+
+lala <- as.data.frame(freq_table)
+colnames(lala ) <- c("cluster" , "sample" , "Norm_freq")
+library(ggplot2)
+  ggplot(data=lala, aes(x=(sample), y=Norm_freq, fill=(cluster))) +
+  geom_bar(stat="identity")+  
+  
+  scale_fill_brewer(palette="Paired")+
+theme(axis.text.x =  element_text(angle = 70, hjust = 1)) 
+
+  
+  
+CRL_down <- subset( rep2_sub , downsample = 2000)
+
+(freq_table <- prop.table(x = table(  CRL_down$sample , CRL_down$Celltypes_OLG ), 
+                          margin = 2))
+
+lala <- as.data.frame(freq_table)
+colnames(lala ) <- c("cluster" , "sample" , "Norm_freq")
+library(ggplot2)
+  ggplot(data=lala, aes(x=(sample), y=Norm_freq, fill=(cluster))) +
+  geom_bar(stat="identity")+  
+  
+  scale_fill_brewer(palette="Paired")+
+theme(axis.text.x =  element_text(angle = 70, hjust = 1)) 
+  
+  
+CRL_down <- subset( rep3_sub , downsample = 2000)
+
+(freq_table <- prop.table(x = table(  CRL_down$sample , CRL_down$Celltypes_OLG ), 
+                          margin = 2))
+
+lala <- as.data.frame(freq_table)
+colnames(lala ) <- c("cluster" , "sample" , "Norm_freq")
+library(ggplot2)
+  ggplot(data=lala, aes(x=(sample), y=Norm_freq, fill=(cluster))) +
+  geom_bar(stat="identity")+  
+  
+  scale_fill_brewer(palette="Paired")+
+theme(axis.text.x =  element_text(angle = 70, hjust = 1)) 
+```
+
+the functional groups
+GSVA to fdo tuesday
+```{r}
+
+```
+```{r}
+gsva.es <- readRDS("/date/gcb/gcb_EA/CRL_TAF1_WTKO_spinalCord_revisions_EA_030724/Processed_data/Robjects_CRL/GSVA_crl/CRL_all_H_gsva.rds")
+
+
+
+
+library(gplots) 
+    library(RColorBrewer)
+    
+    scalebluered <- colorRampPalette(c("blue", "white", "red" , "orange" , "blue" , "black"), space = "rgb")(256)
+    cols = brewer.pal(6, "Dark2")[1:6]
+    #cols = cols[c("GFP", "non-GFP") , "la" , "la1" , "la2" , "la3" )] #, "P21_PE_APC_", "Bulk_P21_APC" , "P21_PE" )] # reorder to agree with Zhi's figure
+  #  rowcols = cols[dev_mousematch@colData$Celltype]
+  top_devs <-   object_test[!rowSums(!is.finite(object_test)),] 
+ #   top_devs[!is.finite(top_devs)] <- 0
+    
+       library(vegan)
+  #   d = vegdist(top_devs, method = "euclidean")
+  #  col.clus = hclust(d, "centroid")
+    
+      library(plyr)
+    library(viridis)
+    
+All_data <- (Hosp_sample.nonneu@meta.data)
+#write.table( All_data ,file = "/datb/gcb/gcb_ea/Hospital_2022_Sept/Processed_data_CR6/Hosp_6sample_olg_gsva_metadata.tsv", sep="\t",row.names = T, col.names =T, quote = FALSE)   
+# sort -k54 /datb/gcb/gcb_ea/Hospital_2022_Sept/Processed_data_CR6/Hosp_6sample_olg_gsva_metadata.tsv  > /datb/gcb/gcb_ea/Hospital_2022_Sept/Processed_data_CR6/Hosp_6sample_olg_gsva_metadata_sorted.tsv
+#sort -k54 /datb/gcb/gcb_ea/Hospital_2022_Sept/Processed_data_CR6/Hosp_6sample_olg_gsva_metadata.tsv | cut -f 1,6,7,53,54 > /datb/gcb/gcb_ea/Hospital_2022_Sept/Processed_data_CR6/Hosp_6sample_olg_gsva_metadata_sorted.tsv
+
+All_data <- read.table("/datb/gcb/gcb_ea/Hospital_2022_Sept/Processed_data_CR6/Hosp_6sample_olg_gsva_metadata_sorted.tsv", stringsAsFactors=F)
+       #colanems: Age     Sex     Hosp_clusters   Hosp_Subclusters
+#All_data1 <- (Hosp_sample.nonneu@meta.data)
+#    colnames(All_data) <- colnames(All_data1)
+All_data_t <- t(All_data)
+
+
+dev.scores_2 <- (object_test[,match(colnames(All_data_t), colnames(object_test))])
+dev.scores <- dev.scores_2    
+
+
+
+library(ComplexHeatmap)
+
+
+ha = HeatmapAnnotation(    celltype = All_data$Hosp_Subclusters , sex = All_data$Sex ,     col = list(   celltype = c( "OL_1" =  "#9a6324", "OL_2"="#008080", "OL_3"="#bcf60c","OL_4"="#3cb44b","ImOL_6"="#46f0f0","OPC_1"="#4363d8","OPC_2"="#911eb4" ) , sex =c("F"="olivedrab3" , "M"="tomato")  ) )
+```

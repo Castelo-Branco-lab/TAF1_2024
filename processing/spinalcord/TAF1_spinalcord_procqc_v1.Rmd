@@ -1,0 +1,301 @@
+---
+title: "TAF1_spinalcord"
+author: "eneritz"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+run cellranger 090724
+```{bash}
+#check which version is 
+#/data/bin/cellranger --version
+#cellranger cellranger-7.2.0
+
+#getenv       = true
+#executable   = /data/bin/cellranger
+#arguments    = "  count --id=mm10_$(sample)_RNA_CR7      --transcriptome=/data/ref/cellranger/refdata-cellranger-mm10-2020-A-2.0.0/ #--fastqs=/proj/tmp/tmp_EA/CRL_2024/   --sample $(sample)	 --include-introns true  "
+#log          = arc_$(sample).log
+#output       = arc_$(sample).out
+#error        = arc_$(sample).error
+#request_cpus = 20
+#concurrency_limits = FSDATA:20
+#queue sample in ( 
+#    P32112_1001
+#    P32112_1002
+#    P32112_1003
+#    P32112_1004
+#    P32112_1005
+#    P32112_1006
+
+
+
+#)
+```
+
+```{r}
+library(Signac)
+library(Seurat)
+library(GenomeInfoDb)
+library(ggplot2)
+library(patchwork)
+library(EnsDb.Mmusculus.v79)
+library(BSgenome.Mmusculus.UCSC.mm10)
+library(tidyverse)
+library(scCustomize)
+library(biomaRt)
+library(gprofiler2)
+library(scDblFinder)
+library(Augur)
+set.seed(1234)
+```
+
+```{r}
+
+source("/home/eneritz/EAsoft/EA_R_functions.R")
+
+library(viridis)
+library(presto)
+# Set color palette
+pal <- viridis(n = 10, option = "D")
+
+```
+
+```{r}
+#/date/gcb/gcb_EA/CRL_TAF1_WTKO_spinalCord_revisions_EA_030724/Processed_data/CR7_count/SCord_TAF1_P32112_aggr_s2_rna/outs/count/
+```
+
+read the matrixes
+```{r}
+
+CRL_WT1 <- Read10X(data.dir = "Processed_data/CR7_count/mm10_P32112_1001_RNA_CR7/outs/filtered_feature_bc_matrix/")
+
+CRL_WT3 <- Read10X(data.dir = "Processed_data/CR7_count/mm10_P32112_1002_RNA_CR7/outs/filtered_feature_bc_matrix/")
+
+CRL_WT4 <- Read10X(data.dir = "Processed_data/CR7_count/mm10_P32112_1003_RNA_CR7/outs/filtered_feature_bc_matrix/")
+
+
+CRL_KO2 <- Read10X(data.dir = "Processed_data/CR7_count/mm10_P32112_1004_RNA_CR7/outs/filtered_feature_bc_matrix/")
+
+CRL_KO3 <- Read10X(data.dir = "Processed_data/CR7_count/mm10_P32112_1005_RNA_CR7/outs/filtered_feature_bc_matrix/")
+
+CRL_KO4 <- Read10X(data.dir = "Processed_data/CR7_count/mm10_P32112_1006_RNA_CR7/outs/filtered_feature_bc_matrix/")
+
+
+
+
+KO2.seurat <- CreateSeuratObject(counts = CRL_KO2  , project = "CRL_KO2")
+KO3.seurat <- CreateSeuratObject(counts = CRL_KO3  , project = "CRL_KO3")
+KO4.seurat <- CreateSeuratObject(counts = CRL_KO4  , project = "CRL_KO4")
+WT1.seurat <- CreateSeuratObject(counts = CRL_WT1  , project = "CRL_WT1")
+WT3.seurat <- CreateSeuratObject(counts = CRL_WT3  , project = "CRL_WT3")
+WT4.seurat <- CreateSeuratObject(counts = CRL_WT4  , project = "CRL_WT4")
+
+
+KO2.seurat$sample <- "KO"
+KO3.seurat$sample <- "KO"
+KO4.seurat$sample <- "KO"
+
+WT1.seurat$sample <- "WT"
+WT3.seurat$sample <- "WT"
+WT4.seurat$sample <- "WT"
+
+
+KO2.seurat$replicate <- "s1"
+KO3.seurat$replicate <- "s2"
+KO4.seurat$replicate <- "s3"
+
+WT1.seurat$replicate <- "s1"
+WT3.seurat$replicate <- "s2"
+WT4.seurat$replicate <- "s3"
+
+
+KO2.seurat$rep_sample <- "KO2"
+KO3.seurat$rep_sample <- "KO3"
+KO4.seurat$rep_sample <- "KO4"
+
+WT1.seurat$rep_sample <- "WT1"
+WT3.seurat$rep_sample <- "WT3"
+WT4.seurat$rep_sample <- "WT4"
+
+KO2.seurat$replicate_v2 <- "s2"
+KO3.seurat$replicate_v2 <- "s3"
+KO4.seurat$replicate_v2 <- "s4"
+
+WT1.seurat$replicate_v2 <- "s1"
+WT3.seurat$replicate_v2 <- "s3"
+WT4.seurat$replicate_v2 <- "s4"
+
+KO2.seurat <- Add_Cell_QC_Metrics(seurat_object = KO2.seurat, species = "mouse", add_mito_ribo = T, add_complexity = T,
+    add_top_pct = T, add_IEG = T, add_MSigDB = T, add_cell_cycle = F )
+
+KO3.seurat <- Add_Cell_QC_Metrics(seurat_object = KO3.seurat, species = "mouse", add_mito_ribo = T, add_complexity = T,
+    add_top_pct = T, add_IEG = T, add_MSigDB = T, add_cell_cycle = F )
+
+KO4.seurat <- Add_Cell_QC_Metrics(seurat_object = KO4.seurat, species = "mouse", add_mito_ribo = T, add_complexity = T,
+    add_top_pct = T, add_IEG = T, add_MSigDB = T, add_cell_cycle = F )
+
+
+WT1.seurat <- Add_Cell_QC_Metrics(seurat_object = WT1.seurat, species = "mouse", add_mito_ribo = T, add_complexity = T,
+    add_top_pct = T, add_IEG = T, add_MSigDB = T, add_cell_cycle = F )
+
+WT3.seurat <- Add_Cell_QC_Metrics(seurat_object = WT3.seurat, species = "mouse", add_mito_ribo = T, add_complexity = T,
+    add_top_pct = T, add_IEG = T, add_MSigDB = T, add_cell_cycle = F )
+
+WT4.seurat <- Add_Cell_QC_Metrics(seurat_object = WT4.seurat, species = "mouse", add_mito_ribo = T, add_complexity = T,
+    add_top_pct = T, add_IEG = T, add_MSigDB = T, add_cell_cycle = F )
+
+CRL_SC <- merge( x= WT1.seurat , y = c( WT3.seurat  , WT4.seurat , KO2.seurat , KO3.seurat , KO4.seurat))
+
+p1 <- QC_Plots_UMIs(seurat_object = CRL_SC, low_cutoff = 1200, high_cutoff = 45000, pt.size = 0,
+    plot_boxplot = TRUE , plot_title = "UMIs per cell" , group.by = "rep_sample")
+p2 <- QC_Plots_UMIs(seurat_object = CRL_SC, low_cutoff = 1200, high_cutoff = 45000, pt.size = 0,
+    y_axis_log = TRUE, plot_boxplot = TRUE , plot_title = "UMIs per cell" , y_axis_label = "log(UMIs)" , group.by = "rep_sample")
+
+wrap_plots(p1, p2, ncol = 2)
+
+QC_Plots_Combined_Vln(seurat_object = CRL_SC, pt.size = 0,
+    plot_boxplot = TRUE , group.by = "rep_sample")
+
+head(CRL_SC@meta.data)
+
+median_stats <- Median_Stats(seurat_object = CRL_SC, group_by_var = "rep_sample" , median_var = c(   "percent_top50"  ,    "percent_ieg"               , "percent_oxphos"  , "percent_apop"    ,   "percent_dna_repair" ))
+median_stats
+```
+
+
+
+```{r}
+QC_Histogram(seurat_object = CRL_SC, features = "percent_mito", low_cutoff = 5, split.by = "rep_sample" , plot_title = "mito %")
+```
+
+```{r}
+
+Plot_Median_Genes(seurat_object = CRL_SC , sample_col = "rep_sample" , group_by = "sample")
+Plot_Median_UMIs(seurat_object = CRL_SC , sample_col = "rep_sample" , group_by = "sample")
+Plot_Median_Mito(seurat_object = CRL_SC , sample_col = "rep_sample" , group_by = "sample")
+Plot_Median_Other(seurat_object = CRL_SC, median_var = "percent_ribo", sample_col = "rep_sample" , group_by = "sample" )
+
+
+```
+```{r}
+colnames(CRL_SC@meta.data)
+QC_Histogram(seurat_object = CRL_SC, features = "percent_apop", low_cutoff = 2, split.by = "rep_sample")
+```
+(seurat V5)
+```{r}
+
+CRL_SC[["joined"]] <- JoinLayers(CRL_SC[["RNA"]])
+DefaultAssay(CRL_SC) <- "joined"
+
+```
+```{r}
+metadata <- CRL_SC@meta.data 
+colnames(metadata)
+metadata %>% 
+  	ggplot(aes(color=rep_sample, x=nCount_RNA, fill= rep_sample)) + 
+  	geom_density(alpha = 0.2) + 
+  	scale_x_log10() + 
+  	theme_classic() +
+  	ylab("Cell density") +
+  	geom_vline(xintercept = 200) +
+  	geom_vline(xintercept = 1500)
+```
+
+
+```{r}
+# Filter out low quality reads using selected thresholds 
+CRL_SC.qc1 <- subset(x = CRL_SC, 
+                         subset= (nCount_RNA >= 200) & 
+                           (nFeature_RNA >= 250) & 
+                            (nFeature_RNA < 6000) & 
+                           (log10GenesPerUMI > 0.90) & 
+                           (percent_mito < 1))
+			    
+
+  Median_Stats(seurat_object = CRL_SC.qc1, group_by_var = "sample")
+ Median_Stats(seurat_object=CRL_SC.qch.singlet , group_by_var = "sample" )
+    Median_Stats(seurat_object=CRL.seurat.clean.h , group_by_var = "sample" )
+```
+
+```{r}
+counts <- GetAssayData(object = CRL_SC.qc1, layer = "counts")
+nonzero <- counts > 0
+keep_genes <- Matrix::rowSums(nonzero) >= 5
+filtered_counts <- counts[keep_genes, ]
+CRL_SC.qc2 <- CreateSeuratObject(filtered_counts, meta.data = CRL_SC.qc1@meta.data)
+```
+```{r}
+
+CRL_SC.qc2[["joined"]] <- JoinLayers(CRL_SC.qc2[["RNA"]])
+DefaultAssay(CRL_SC.qc2) <- "joined"
+
+
+```
+```{r}
+CRL.sce <- as.SingleCellExperiment(CRL_SC.qc2 , assay="joined")
+CRL.sce <- scDblFinder(CRL.sce, samples="rep_sample" )
+table(CRL.sce$scDblFinder.class)
+metadata_doublet <- CRL.sce@colData
+
+metadata <- cbind(metadata_doublet[20],metadata_doublet[21],metadata_doublet[22],metadata_doublet[23],metadata_doublet[24] )
+
+
+CRL_SC.qc2 <- AddMetaData( CRL_SC.qc2 , metadata = as.data.frame(metadata))
+
+head(CRL_SC.qc2@meta.data)
+
+table(CRL_SC.qc2$scDblFinder.class)
+table(CRL_SC.qc2$scDblFinder.class , CRL_SC.qc2$rep_sample)
+
+```
+norm, dimension reduction and clustering
+```{r}
+
+CRL_SC.qch <- CRL_SC.qc2 %>%
+    NormalizeData() %>%
+    FindVariableFeatures(selection.method = "vst", nfeatures = 2000) %>% 
+    ScaleData() %>%
+    SCTransform(vars.to.regress = c("percent_mito"))
+
+CRL_SC.qch <- RunPCA(CRL_SC.qch, assay = "SCT", npcs = 50)
+library(harmony)
+CRL_SC.qch <- RunHarmony(CRL_SC.qch, 
+				group.by.vars = c("rep_sample"), 
+				reduction = "pca", assay.use = "SCT", reduction.save = "harmony")
+
+CRL_SC.qch <- RunUMAP(CRL_SC.qch, reduction = "harmony", assay = "SCT", dims = 1:40)
+
+CRL_SC.qch <- FindNeighbors(object = CRL_SC.qch, reduction = "harmony")
+CRL_SC.qch <- FindClusters(CRL_SC.qch, resolution = c(0.2, 0.4, 0.6, 0.8, 1.0, 1.2))
+CRL_SC.qch <- FindClusters(CRL_SC.qch, resolution = c(0.05))
+
+```
+```{r}
+
+DimPlot( CRL_SC.qch , group.by = "SCT_snn_res.1" , label = T , shuffle=T)
+
+
+DimPlot( CRL_SC.qch , group.by = "SCT_snn_res.0.2" , label = T , shuffle=T)
+
+```
+```{r}
+DefaultAssay(CRL_SC.qch) <- "SCT"
+
+sc_allmarkers_re1 <- wilcoxauc( CRL_SC.qch, 'SCT_snn_res.1' , seurat_assay = "SCT")
+
+
+markerswilcox.top10 <- sc_allmarkers_re1 %>% group_by(group) %>% top_n(n = 10, wt = logFC)
+markers_wilcox.all <- sc_allmarkers_re1 %>% group_by(group) 
+DE_res1_wilcox.list <- markers_wilcox.all  %>% group_by(group) %>% filter( padj < 0.05 ) %>% arrange(desc(logFC) )  %>% group_split()
+
+```
+Add external references and markers
+
+
+

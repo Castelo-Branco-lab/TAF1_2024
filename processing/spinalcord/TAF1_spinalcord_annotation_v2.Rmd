@@ -1,0 +1,646 @@
+---
+title: "TAF1_spinalcord_annotations"
+author: "eneritz"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+```{r}
+library(Signac)
+library(Seurat)
+library(GenomeInfoDb)
+library(ggplot2)
+library(patchwork)
+library(EnsDb.Mmusculus.v79)
+library(BSgenome.Mmusculus.UCSC.mm10)
+library(tidyverse)
+library(scCustomize)
+library(biomaRt)
+library(gprofiler2)
+library(scDblFinder)
+library(Augur)
+set.seed(1234)
+```
+
+
+```{r}
+#Linnarsson ref 
+SL_adult_ref <- readRDS("MM10_files/l5_all_adolescent_seurat_SCT.rds")
+
+
+Idents(SL_adult_ref) <- "Class"
+
+
+table(SL_adult_ref$Class)
+
+SL_adult_ref.subset <- subset( SL_adult_ref , downsample = 1000)
+###############################################################33
+table(CRL.seurat.qch.down$rep_sample)
+
+Idents(SL_adult_ref.subset) <- "Class"
+
+DefaultAssay(CRL_SC.qch) <- "SCT"
+SL_adult_ref.subset@meta.data['log_umi'] <- log10(SL_adult_ref.subset$nCount_SCT)
+CRL_SC.qch@meta.data['log_umi'] <- log10(CRL_SC.qch$nCount_SCT)
+transfer.anchors <- FindTransferAnchors(
+   reference = SL_adult_ref.subset,
+   query = CRL_SC.qch ,
+  reference.assay = 'SCT',
+   query.assay = 'SCT',
+   reduction = 'cca',
+   
+   k.filter = NA
+ )
+ 
+ predicted.id  <- TransferData(
+   anchorset = transfer.anchors, 
+   refdata = SL_adult_ref.subset$Class,
+   dims = 1:30,
+ #k.weight=2,
+weight.reduction = "cca"
+ )
+
+CRL_SC.qch  <- AddMetaData(
+  object = CRL_SC.qch,
+  metadata = predicted.id
+)
+
+#reference using all the regions from the atlas
+CRL_SC.qch$SL_Adult <- CRL_SC.qch$predicted.id ###
+
+
+```
+Quintana reference
+
+
+```{r}
+quint_mat <- read.csv("B6_EAE.csv" , row.names = 1)
+quint_anno <- read.csv("B6_EAE_metadata.csv" , row.names = 1 )
+
+
+Quint.seur <- CreateSeuratObject( quint_mat  )
+
+Quint.seur <- NormalizeData(object = Quint.seur)
+head(colnames(Quint.seur))
+
+Quint.seur <- FindVariableFeatures(object = Quint.seur, nfeatures = 2000)
+Quint.seur <- ScaleData(object = Quint.seur)
+Quint.seur <- RunPCA(object = Quint.seur, npcs = 20, verbose = FALSE)
+Quint.seur <- RunUMAP(object = Quint.seur, dims = 1:20, nneighbors = 5)
+
+Quint.seur <- AddMetaData(object = Quint.seur,  metadata = quint_anno )
+
+head(quint_anno)
+head(Quint.seur@meta.data)
+
+DimPlot( Quint.seur , group.by = "Celltypes_quintana")
+
+
+
+unique(Quint.seur$Disease)
+Quint.seur$Celltype_Cond  <- paste(Quint.seur$Celltypes_quintana , Quint.seur$Disease , sep="_")
+
+head(anno)
+
+Idents(Quint.seur) <- "Disease"
+
+Quint_cfa <- subset( Quint.seur , idents =  (    "B6 CFA"     ))
+unique(Quint_cfa$Celltypes_quintana)
+
+Quint_cfa <- Quint_cfa %>%
+    NormalizeData() %>%
+    FindVariableFeatures(selection.method = "vst", nfeatures = 2000) %>% 
+    ScaleData() %>%
+    SCTransform() %>%
+    RunPCA( assay = "SCT", npcs = 50) %>%
+     RunUMAP( reduction = "pca", assay = "SCT", dims = 1:40) %>%
+     FindNeighbors( reduction = "pca")
+
+```
+
+
+```{r}
+
+
+Idents(Quint_cfa) <- "Celltypes_quintana"
+
+DefaultAssay(CRL_SC.qch) <- "SCT"
+Quint_cfa@meta.data['log_umi'] <- log10(Quint_cfa$nCount_SCT)
+
+transfer.anchors <- FindTransferAnchors(
+   reference = Quint_cfa,
+   query = CRL_SC.qch ,
+  reference.assay = 'SCT',
+   query.assay = 'SCT',
+   reduction = 'cca',
+   
+   k.filter = NA
+ )
+ 
+ predicted.id  <- TransferData(
+   anchorset = transfer.anchors, 
+   refdata = Quint_cfa$Celltypes_quintana,
+   dims = 1:30,
+ #k.weight=2,
+weight.reduction = "cca"
+ )
+
+CRL_SC.qch  <- AddMetaData(
+  object = CRL_SC.qch,
+  metadata = predicted.id
+)
+
+#reference using all the regions from the atlas
+CRL_SC.qch$Quintana_CFA <- CRL_SC.qch$predicted.id ###
+
+
+```
+
+reference SL adolescent
+```{r}
+DimPlot_scCustom( CRL_SC.qch , group.by = "SL_Adult")
+DimPlot_scCustom( CRL_SC.qch , group.by = "Quintana_CFA")
+```
+use the harmonized spinal cord atlas
+```{r}
+#https://seqseek.ninds.nih.gov/classify
+#downloading reference.rds
+harm_Spinalcord.seur <- readRDS("SpinalCord_atlas_MM10_Russ_Levine_2021/reference.rds")
+
+harm_Spinalcord.seur <- UpdateSeuratObject(harm_Spinalcord.seur)
+
+
+head(harm_Spinalcord.seur@meta.data)
+unique(harm_Spinalcord.seur$final_coarse_clusters)
+harm_Spinalcord.seur <- subset(harm_Spinalcord.seur , ident=c("Junk" , "Doublets") , invert=T)
+
+harm_Spinalcord.seur <- RunUMAP(harm_Spinalcord.seur, reduction = "pca", assay = "integrated", dims = 1:20)
+
+DimPlot( harm_Spinalcord.seur , group.by = "final_coarse_clusters" , label = T , shuffle=T)
+
+```
+```{r , fig.width=6 , fig.height=4}
+FeaturePlot_scCustom( harm_Spinalcord.seur , features = "Plp1"  , colors_use = pal)
+FeaturePlot_scCustom( harm_Spinalcord.seur , features = "Mbp"  , colors_use = pal)
+FeaturePlot_scCustom( harm_Spinalcord.seur , features = "Pdgfra" , colors_use = pal)
+FeaturePlot_scCustom( harm_Spinalcord.seur , features = "Ptgds"  , colors_use = pal)
+FeaturePlot_scCustom( harm_Spinalcord.seur , features = "Mog" , colors_use = pal)
+FeaturePlot_scCustom( harm_Spinalcord.seur , features = "Gfap"  , colors_use = pal)
+
+```
+```{r}
+harm_Spinalcord.seur <- readRDS("Harm_SpinalCord_reference_EA.rds")
+
+Idents(harm_Spinalcord.seur) <- "final_coarse_clusters"
+
+DefaultAssay(CRL_SC.qch) <- "RNA"
+Quint_cfa@meta.data['log_umi'] <- log10(harm_Spinalcord.seur$nCount_SCT)
+
+transfer.anchors <- FindTransferAnchors(
+   reference = harm_Spinalcord.seur,
+   query = CRL_SC.qch ,
+  reference.assay = 'integrated',
+   query.assay = 'joined',
+   reduction = 'cca',
+   
+   k.filter = NA
+ )
+ 
+ predicted.id  <- TransferData(
+   anchorset = transfer.anchors, 
+   refdata = harm_Spinalcord.seur$final_coarse_clusters,
+   dims = 1:30,
+ #k.weight=2,
+weight.reduction = "cca"
+ )
+
+CRL_SC.qch  <- AddMetaData(
+  object = CRL_SC.qch,
+  metadata = predicted.id
+)
+
+#reference using all the regions from the atlas
+CRL_SC.qch$Harm_SC_atlas <- CRL_SC.qch$predicted.id ###
+
+
+```
+```{r}
+DimPlot_scCustom( CRL_SC.qch , group.by = "Harm_SC_atlas")
+```
+
+
+plot canonical markers
+```{r}
+######
+DefaultAssay(CRL_SC.qch) <- 'SCT'
+
+
+Idents(CRL_SC.qch) <- "SCT_snn_res.0.8"
+
+
+CRL.averages <- AverageExpression(CRL_SC.qch, assay = "SCT" , slot="counts" ,  return.seurat = F , features = c("Ptprz1" , "Mog" , "Sox10" , "Plp1" , "Pdgfra" , "Mbp" , "Klk6" , "Ptgds" , "P2ry12" , "Slc7a10" , "Aif1" , "Lyz2" ,  "Sox9" , "H2-Ab1" , "Ifi27l2a" , "H2-D1" , "H2-Aa" , "Serpina3n" , "H2-K1" , "Sox6" , "Gfap" , "Cspg4" , "Pdgfrb" , "Top2a" , "Rbfox1" , "Snap1" ))#, "Piezo2" , "Piezo1"))
+
+#scale rows 0 to 1
+crl_averages_norm <- t(apply(CRL.averages$SCT, 1, function(x)(x-min(x))/(max(x)-min(x))))
+
+
+Idents(CRL_SC.qch) <- "scDblFinder.class"
+
+CRL_SC.qch.singlet <- subset( CRL_SC.qch , ident=("singlet"))
+
+
+Idents(CRL_SC.qch.singlet) <- "SCT_snn_res.0.8"
+
+
+CRL.averages <- AverageExpression(CRL_SC.qch.singlet, assay = "SCT" , slot="counts" ,  return.seurat = F , features = c("Ptprz1" , "Mog" , "Sox10" , "Plp1" , "Pdgfra" , "Mbp" , "Klk6" , "Ptgds" , "P2ry12" , "Slc7a10" , "Aif1" , "Lyz2" ,  "Sox9" , "H2-Ab1" , "Ifi27l2a" , "H2-D1" , "H2-Aa" , "Serpina3n" , "H2-K1" , "Sox6" , "Gfap" , "Cspg4" , "Pdgfrb" , "Top2a" , "Rbfox1" , "Snap1" ))#, "Piezo2" , "Piezo1"))
+
+#scale rows 0 to 1
+crl_averages_norm <- t(apply(CRL.averages$SCT, 1, function(x)(x-min(x))/(max(x)-min(x))))
+
+```
+
+```{r , fig.height= 8}
+heatmap.2((as.matrix(crl_averages_norm)),  Rowv=T, Colv=T ,  col = viridis(50) , tracecol=NA)
+DimPlot( CRL_SC.qch.singlet , group.by = "SCT_snn_res.0.2" , label = T , shuffle=T)
+
+
+DimPlot( CRL_SC.qch.singlet , group.by = "SCT_snn_res.0.8" , label = T , shuffle=T)
+
+
+DimPlot( CRL_SC.qch , group.by = "scDblFinder.class" , label = T , shuffle=T)
+
+FeaturePlot_scCustom( CRL_SC.qch , features = "Plp1" , colors_use = pal)
+
+
+QC_Plots_Feature(seurat_object = CRL_SC.qch.singlet,  pt.size = 0, feature = ("Plp1") ,
+    y_axis_log = TRUE, plot_boxplot = TRUE , plot_title = "Plp1" , y_axis_label = "log(Plp1)" , group.by = "SCT_snn_res.0.8")
+QC_Plots_Feature(seurat_object = CRL_SC.qch.singlet,  pt.size = 0, feature = ("Mbp") ,
+    y_axis_log = TRUE, plot_boxplot = TRUE , plot_title = "Mbp" , y_axis_label = "log(Mbp)" , group.by = "SCT_snn_res.0.8")
+QC_Plots_Feature(seurat_object = CRL_SC.qch,  pt.size = 0, feature = "percent_mito" ,
+    y_axis_log = F, plot_boxplot = TRUE , plot_title = "perc mito" , y_axis_label = "percent Plp1" , group.by = "SCT_snn_res.0.8")
+```
+
+
+```{r , fig.width=15 , fig.height=4}
+FeaturePlot_scCustom( CRL_SC.qch , features = "Plp1" , split.by = "rep_sample" , colors_use = pal)
+FeaturePlot_scCustom( CRL_SC.qch , features = "Mbp" , split.by = "rep_sample" , colors_use = pal)
+FeaturePlot_scCustom( CRL_SC.qch , features = "Pdgfra" , split.by = "rep_sample" , colors_use = pal)
+FeaturePlot_scCustom( CRL_SC.qch , features = "Ptgds" , split.by = "rep_sample" , colors_use = pal)
+FeaturePlot_scCustom( CRL_SC.qch , features = "Mog" , split.by = "rep_sample" , colors_use = pal)
+FeaturePlot_scCustom( CRL_SC.qch , features = "Gfap" , split.by = "rep_sample" , colors_use = pal)
+
+```
+```{r}
+
+
+Idents(CRL_SC.qch.singlet) <- "SCT_snn_res.0.8"
+
+Clustered_DotPlot(seurat_object = CRL_SC.qch.singlet, features = c("Ptprz1" , "Mog" , "Sox10" , "Plp1" , "Pdgfra" , "Mbp" , "Klk6" , "Ptgds" , "P2ry12" , "Slc7a10" , "Aif1" , "Lyz2" ,  "Sox9" , "H2-Ab1" , "Ifi27l2a" , "H2-D1" , "H2-Aa" , "Serpina3n" , "H2-K1" , "Sox6" , "Gfap" , "Cspg4" , "Pdgfrb" , "Top2a" , "Rbfox1") , assay = "SCT" , colors_use_exp = viridis(20) ,  exp_color_min = -3, exp_color_max = 3 )
+
+
+Idents(CRL_SC.qch.singlet) <- "SCT_snn_res.0.2"
+
+Clustered_DotPlot(seurat_object = CRL_SC.qch.singlet, features = c("Ptprz1" , "Mog" , "Sox10" , "Plp1" , "Pdgfra" , "Mbp" , "Klk6" , "Ptgds" , "P2ry12" , "Slc7a10" , "Aif1" , "Lyz2" ,  "Sox9" , "H2-Ab1" , "Ifi27l2a" , "H2-D1" , "H2-Aa" , "Serpina3n" , "H2-K1" , "Sox6" , "Gfap" , "Cspg4" , "Pdgfrb" , "Top2a" , "Rbfox1") , assay = "SCT" , colors_use_exp = viridis(20) ,  exp_color_min = -3, exp_color_max = 3 )
+```
+
+
+
+################################
+
+```{r}
+DimPlot_scCustom(CRL_SC.qch.singlet , group.by = "MD_spinalcord_neu_ref" , label = T  , repel = T) 
+DimPlot_scCustom(CRL_SC.qch.singlet , group.by = "SCT_snn_res.0.2" , label = T , repel = T)
+DimPlot_scCustom(CRL_SC.qch.singlet , group.by = "Harm_SC_atlas" , label = T , repel = T)
+DimPlot_scCustom(CRL_SC.qch.singlet , group.by = "Quintana_CFA" , label = T , repel = T)
+```
+
+```{r}
+CRL_SC.qch.singlet$broad_celltypes <- CRL_SC.qch.singlet$SCT_snn_res.0.2
+CRL_SC.qch.singlet$broad_celltypes <- as.character(CRL_SC.qch.singlet$broad_celltypes)
+
+CRL_SC.qch.singlet@meta.data <- CRL_SC.qch.singlet@meta.data %>% mutate( broad_celltypes = replace(broad_celltypes, broad_celltypes == "2" , "MOL" ))  %>%
+  mutate( broad_celltypes = replace(broad_celltypes, broad_celltypes == "8" , "OPC" ))  %>%
+    mutate( broad_celltypes = replace(broad_celltypes, broad_celltypes == "9" , "MiGl" ))  %>%
+    mutate( broad_celltypes = replace(broad_celltypes, broad_celltypes == "7" , "Astro" ))  %>%
+    mutate( broad_celltypes = replace(broad_celltypes, broad_celltypes == "1" , "Inh_neurons" ))  %>%
+    mutate( broad_celltypes = replace(broad_celltypes, broad_celltypes == "0" , "Exc_neurons" ))  %>%
+      mutate( broad_celltypes = replace(broad_celltypes, broad_celltypes == "3" , "Exc_neurons" ))  %>%
+    mutate( broad_celltypes = replace(broad_celltypes, broad_celltypes == "5" , "Exc_neurons" ))  %>%
+    mutate( broad_celltypes = replace(broad_celltypes, broad_celltypes == "6" , "Exc_neurons" ))  %>%
+   mutate( broad_celltypes = replace(broad_celltypes, broad_celltypes == "4" , "Exc_neurons" ))  
+```
+
+```{r}
+DimPlot_scCustom(CRL_SC.qch.singlet , group.by = "MD_spinalcord_neu_ref" , label = T  , repel = T) 
+DimPlot_scCustom(CRL_SC.qch.singlet , group.by = "SCT_snn_res.0.2" , label = T , repel = T)
+DimPlot_scCustom(CRL_SC.qch.singlet , group.by = "Harm_SC_atlas" , label = T , repel = T)
+DimPlot_scCustom(CRL_SC.qch.singlet , group.by = "Quintana_CFA" , label = T , repel = T)
+DimPlot_scCustom(CRL_SC.qch.singlet , group.by = "broad_celltypes" , label = T , repel = T)
+```
+select clearly the ol + opc and maybe imm+ols
+
+```{r}
+plot <- DimPlot(object = CRL_SC.qch.singlet)
+# Follow instructions in the terminal to select points
+cells.located <- CellSelector(plot = plot)
+cells.located
+# Automatically set the identity class of selected cells and return a new Seurat object
+#CRL_SC.selectedOLG <- CellSelector(plot = plot, object = CRL_SC.qch.singlet, ident = 'SelectedCells')
+complete_OLG <- subset(CRL_SC.qch.singlet, cells = cells.located)
+complete_OLG$celltypes <- "OLG"
+CRL_SC.qch.singlet <- AddMetaData( CRL_SC.qch.singlet , metadata = complete_OLG@meta.data)
+DimPlot_scCustom( CRL_SC.qch.singlet , group.by = "celltypes")
+
+
+plot <- DimPlot(object = CRL_SC.qch.singlet)
+# Follow instructions in the terminal to select points
+cells.located <- CellSelector(plot = plot)
+cells.located
+complete_NeuMigl <- subset(CRL_SC.qch.singlet, cells = cells.located)
+complete_NeuMigl$celltypes <- complete_NeuMigl$broad_celltypes
+#CRL_SC.qch.singlet <- AddMetaData( CRL_SC.qch.singlet , metadata = complete_OLG@meta.data)
+#DimPlot_scCustom( CRL_SC.qch.singlet , group.by = "celltypes")
+
+#astros
+plot <- DimPlot(object = CRL_SC.qch.singlet)
+# Follow instructions in the terminal to select points
+cells.located <- CellSelector(plot = plot)
+cells.located
+complete_Astros <- subset(CRL_SC.qch.singlet, cells = cells.located)
+complete_Astros$celltypes <- complete_Astros$broad_celltypes
+
+
+#microglia
+plot <- DimPlot(object = CRL_SC.qch.singlet)
+# Follow instructions in the terminal to select points
+cells.located <- CellSelector(plot = plot)
+cells.located
+complete_migl <- subset(CRL_SC.qch.singlet, cells = cells.located)
+complete_migl$celltypes <- "Migl"
+
+
+
+
+final_metadata <- rbind( complete_OLG@meta.data , complete_NeuMigl@meta.data , complete_Astros@meta.data ,  complete_migl@meta.data)
+
+CRL_SC.qch.singlet <- AddMetaData( CRL_SC.qch.singlet , metadata = final_metadata)
+DimPlot_scCustom( CRL_SC.qch.singlet , group.by = "celltypes")
+
+CRL_SC.qch.singlet@meta.data <- CRL_SC.qch.singlet@meta.data %>% mutate( celltypes = replace(celltypes, celltypes == "MiGl" , "Exc_neurons" ))  %>%
+  mutate( celltypes = replace(celltypes, celltypes == "MOL" , "Exc_neurons" ))  %>%
+  mutate( celltypes = replace(celltypes, celltypes == "OPC" , "Exc_neurons" )) 
+
+CRL_SC.qch.singlet$celltypes_sub <- CRL_SC.qch.singlet$celltypes
+
+#complete_OLG$celltypes_sub  <- paste0(
+#  as.character( complete_OLG$celltypes), '_',
+#  as.character(complete_OLG$SCT_snn_res.0.8)
+#)
+
+  CRL_SC.qch.singlet$celltypes_sub  <- paste0(
+  as.character( CRL_SC.qch.singlet$celltypes), '_',
+  as.character(CRL_SC.qch.singlet$broad_celltypes)
+)
+  
+ CRL_SC.qch.singlet$celltypes_sub_res08  <- paste0(
+  as.character( CRL_SC.qch.singlet$celltypes), '_',
+  as.character(CRL_SC.qch.singlet$SCT_snn_res.0.8)
+)
+  
+
+ CRL_SC.qch.singlet$celltypes_sub_res02  <- paste0(
+  as.character( CRL_SC.qch.singlet$celltypes), '_',
+  as.character(CRL_SC.qch.singlet$SCT_snn_res.0.2)
+)
+```
+
+
+```{r}
+DimPlot_scCustom( CRL_SC.qch.singlet , group.by = "celltypes_sub_res08")
+
+ 
+  DimPlot_scCustom( CRL_SC.qch.singlet , group.by = "celltypes_sub_res02")
+
+  
+  DimPlot_scCustom( CRL_SC.qch.singlet , group.by = "celltypes_sub")
+
+
+  DimPlot_scCustom( CRL_SC.qch.singlet , group.by = "broad_celltypes")
+  
+```
+subset OLGs
+```{r}
+Idents(CRL_SC.qch.singlet) <- "celltypes"
+CRL_SC.OLG_singlet <- subset(CRL_SC.qch.singlet , ident = ("OLG"))
+```
+
+```{r}
+# Perform log-normalization and feature selection, as well as SCT normalization on global object
+CRL_SC.OLG_singlet <- CRL_SC.OLG_singlet %>%
+    NormalizeData() %>%
+    FindVariableFeatures(selection.method = "vst", nfeatures = 2000) %>% 
+    ScaleData() %>%
+    SCTransform(vars.to.regress = c("percent_mito"))
+
+# Calculate PCs using variable features determined by SCTransform (3000 by default)
+CRL_SC.qch <- RunPCA(CRL_SC.OLG_singlet, assay = "SCT", npcs = 50)
+library(harmony)
+CRL_SC.qch <- RunHarmony(CRL_SC.OLG_singlet, 
+				group.by.vars = c("rep_sample"), 
+				reduction = "pca", assay.use = "SCT", reduction.save = "harmony")
+
+CRL_SC.OLG_singlet <- RunUMAP(CRL_SC.OLG_singlet, reduction = "harmony", assay = "SCT", dims = 1:40)
+
+CRL_SC.OLG_singlet <- FindNeighbors(object = CRL_SC.OLG_singlet, reduction = "harmony")
+CRL_SC.OLG_singlet <- FindClusters(CRL_SC.OLG_singlet, resolution = c( 0.8))
+CRL_SC.OLG_singlet <- FindClusters(CRL_SC.OLG_singlet, resolution = c( 0.2))
+```
+annotate OLGs with Marques Zeisel 2016
+
+
+```{r}
+load("Marques2016_seurat3.Robj")
+
+Marques_v5 <- UpdateSeuratObject(Marques16_seurat)
+Marques16_seurat <- Marques_v5
+Marques16_seurat@meta.data
+Idents(object = Marques16_seurat  ) <- "Region"
+Marques16_seurat_SpinalCord <- subset( Marques16_seurat , idents = ( "spinal_cord" ))  
+
+Idents(object = Marques16_seurat_SpinalCord  ) <- "Celltype"
+Marques16_seurat_SpinalCord <- subset( Marques16_seurat_SpinalCord , idents = c( "PPR", "MOL3" , "MOL4" , "MOL1" ) , invert=T)  
+
+Idents(object = Marques16_seurat_SpinalCord  ) <- "Celltype"
+Marques16_seurat_SpinalCord@meta.data <- Marques16_seurat_SpinalCord@meta.data %>% mutate(Celltype = replace(Celltype, Celltype == "NFOL1", "NFOL"))   %>%
+ mutate(Celltype = replace(Celltype, Celltype == "NFOL2", "NFOL"))   %>%
+ mutate(Celltype = replace(Celltype, Celltype == "MFOL1", "MFOL"))   %>%
+ mutate(Celltype = replace(Celltype, Celltype == "MFOL2", "MFOL")) 
+unique(Marques16_seurat_SpinalCord$Celltype)
+
+  DefaultAssay(Marques16_seurat_SpinalCord) <- "RNA"
+
+
+CRL_SC.qch.singlet <- CRL_SC.qch.singlet %>%
+    NormalizeData() %>%
+    FindVariableFeatures(selection.method = "vst", nfeatures = 2000) %>% 
+    ScaleData()
+
+transfer.anchors <- FindTransferAnchors(
+  reference = Marques16_seurat_SpinalCord,
+  query = CRL_SC.qch.singlet ,
+  
+  reference.assay = 'RNA',
+   query.assay = 'RNA',
+   reduction = 'cca',
+   
+   k.filter = NA
+ )
+
+predicted.labels <- TransferData(
+  anchorset = transfer.anchors,
+  refdata = Marques16_seurat_SpinalCord$Celltype,
+    dims = 1:30,
+ 
+weight.reduction = "cca"
+  
+)
+
+CRL_SC.qch.singlet <- AddMetaData(object = CRL_SC.qch.singlet, metadata = predicted.labels)
+
+
+CRL_SC.qch.singlet$Marques_Zeisel <- CRL_SC.qch.singlet$predicted.id
+
+ DimPlot_scCustom( CRL_SC.qch.singlet , group.by = "Marques_Zeisel")
+ 
+ ###
+ 
+CRL_SC.OLG_singlet_OLG <- CRL_SC.OLG_singlet_OLG %>%
+    NormalizeData() %>%
+    FindVariableFeatures(selection.method = "vst", nfeatures = 2000) %>% 
+    ScaleData()
+
+transfer.anchors <- FindTransferAnchors(
+  reference = Marques16_seurat_SpinalCord,
+  query = CRL_SC.OLG_singlet_OLG ,
+  
+  reference.assay = 'RNA',
+   query.assay = 'RNA',
+   reduction = 'cca',
+   
+   k.filter = NA
+ )
+
+predicted.labels <- TransferData(
+  anchorset = transfer.anchors,
+  refdata = Marques16_seurat_SpinalCord$Celltype,
+    dims = 1:30,
+
+weight.reduction = "cca"
+  
+)
+
+CRL_SC.OLG_singlet_OLG <- AddMetaData(object = CRL_SC.OLG_singlet_OLG, metadata = predicted.labels)
+
+
+CRL_SC.OLG_singlet_OLG$Marques_Zeisel <- CRL_SC.OLG_singlet_OLG$predicted.id
+
+
+ DimPlot_scCustom( CRL_SC.qch.singlet , group.by = "Marques_Zeisel")
+ DimPlot_scCustom( CRL_SC.OLG_singlet_OLG , group.by = "Marques_Zeisel")
+ DimPlot_scCustom( CRL_SC.OLG_singlet_OLG , group.by = "celltypes_sub_res08")
+ 
+ 
+```
+
+
+```{r}
+DimPlot_scCustom( CRL_SC.OLG_singlet_OLG , group.by = "Marques_Zeisel")
+ 
+ table(CRL_SC.OLG_singlet_OLG$Marques_Zeisel , CRL_SC.OLG_singlet_OLG$celltypes_sub_res08)
+ 
+ 
+ DimPlot_scCustom( CRL_SC.qch.singlet , group.by = "Marques_Zeisel")
+ Idents(CRL_SC.qch.singlet) <-  "celltypes_sub_res02"
+ unique(CRL_SC.qch.singlet$celltypes_sub_res02)
+ CRL_OLG <- subset(CRL_SC.qch.singlet , ident=c( "OLG_0" , "OLG_1", "OLG_2", "OLG_3", "OLG_4", "OLG_5", "OLG_6", "OLG_7", "OLG_8", "OLG_9"))
+  DimPlot_scCustom( CRL_OLG , group.by = "Marques_Zeisel")
+  DimPlot_scCustom( CRL_OLG , group.by = "celltypes_sub_res08" , label=T)
+  library(ggplot2)
+library(cowplot)
+
+(freq_table <- prop.table(x = table( CRL_OLG$Marques_Zeisel , CRL_OLG$celltypes_sub_res02  ), 
+                          margin = 2))
+
+lala <- as.data.frame(freq_table)
+colnames(lala ) <- c("cluster" , "sample" , "Norm_freq")
+library(ggplot2)
+
+p3 <-   ggplot(data=lala, aes(x=(sample), y=Norm_freq, fill=(cluster))) +
+  geom_bar(stat="identity")+  
+  
+theme(axis.text.x =  element_text(angle = 70, hjust = 1)) 
+p3
+
+ DimPlot_scCustom( CRL_OLG , group.by = "Marques_Zeisel")
+  DimPlot_scCustom( CRL_OLG , group.by = "celltypes_sub_res08" , label=T)
+  DimPlot_scCustom( CRL_OLG , group.by = "celltypes_sub_res02" , label=T)
+  
+
+  
+CRL_SC.qch.singlet$SCT08_MarquesZeisel <- paste(CRL_SC.qch.singlet$celltypes_sub_res08, CRL_SC.qch.singlet$Marques_Zeisel, sep = "_")
+unique(CRL_SC.qch.singlet$SCT08_MarquesZeisel)
+
+CRL_SC.qch.singlet$Annotated_SCT08  <- CRL_SC.qch.singlet$SCT08_MarquesZeisel 
+
+meta.data <- cbind( CRL_SC.qch.singlet@meta.data[,149] , CRL_SC.qch.singlet@meta.data[,150]  , CRL_SC.qch.singlet@meta.data[,129] )
+rownames(meta.data) <- rownames(CRL_SC.qch.singlet@meta.data)
+
+
+Idents(object = CRL_SC.qch.singlet  ) <- "Annotated_SCT08"
+
+meta.data <- read.csv("metadata_OLG_celltypes_annotated.csv" ,row.names = 1)
+
+CRL_SC.qch.singlet <- AddMetaData(CRL_SC.qch.singlet , metadata = meta.data)
+
+ DimPlot_scCustom( CRL_OLG , group.by = "cells" , label=T)
+DimPlot_scCustom( CRL_OLG , group.by = "celltypes_sub_res08" , label=T)
+DimPlot_scCustom( CRL_OLG , group.by = "Marques_Zeisel")
+CRL_OLG@meta.data
+
+Idents(object = CRL_SC.qch.singlet  ) <- "Annotated_SCT08"
+Idents(object = CRL_OLG  ) <- "cells"
+Cluster_Highlight_Plot( CRL_OLG , cluster_name = "COP"  ,  background_color = "lightgray",  pt.size = 2)
+Cluster_Highlight_Plot( CRL_OLG , cluster_name = "OPC"  ,  background_color = "lightgray",  pt.size = 2)
+Cluster_Highlight_Plot( CRL_OLG , cluster_name = "MFOL"  ,  background_color = "lightgray",  pt.size = 2)
+Cluster_Highlight_Plot( CRL_OLG , cluster_name = "NFOL"  ,  background_color = "lightgray",  pt.size = 2)
+
+Idents(object = CRL_SC.qch.singlet  ) <- "cells"
+ DimPlot_scCustom( CRL_OLG , group.by = "celltypes_sub_res08" , label=T)
+Cluster_Highlight_Plot( CRL_SC.qch.singlet , cluster_name = "OLG_6"  ,  background_color = "lightgray",  pt.size = 2)
+
+
+meta.data <- read.csv("metadata_OLG_celltypes_annotated_final.csv" ,row.names = 1)
+
+CRL_SC.qch.singlet <- AddMetaData(CRL_SC.qch.singlet , metadata = meta.data)
+
+ DimPlot_scCustom( CRL_OLG , group.by = "cells" , label=T)
+DimPlot_scCustom( CRL_OLG , group.by = "celltypes_sub_res08" , label=T)
+DimPlot_scCustom( CRL_OLG , group.by = "Marques_Zeisel")
+DimPlot_scCustom( CRL_OLG , group.by = "broad_celltypes")
+CRL_OLG@meta.data
+
+
+Idents(object = CRL_OLG  ) <-  "cells" 
+Cluster_Highlight_Plot( CRL_OLG , cluster_name = "Exc_neurons"  ,  background_color = "lightgray",  pt.size = 2)
+
+ DimPlot_scCustom( CRL_SC.qch.singlet , group.by = "cells" , label=T)
+```
+
+```{r}
+
+CRL_SC.qch.singlet <- AddMetaData(CRL_SC.qch.singlet , metadata = meta.data)
+
+```
+
