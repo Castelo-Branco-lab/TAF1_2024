@@ -1,5 +1,5 @@
 # TAF1 single nuclei RNA-seq 
-snRNA-seq code for the manuscript "TAF1-dependent transcriptional dysregulation underlies multiple sclerosis" Rodríguez-López & Hernández et al. 2025
+snRNA-seq code for the manuscript "TAF1-dependent transcriptional dysregulation underlies multiple sclerosis" Rodríguez-López & Hernández et al. 2026
 
 Spinal cord
 snRNA-seq for 6 samples from the whole mouse spinal cord from 2 month-old WT (n = 3) and Taf1d38 (n = 3) mice.
